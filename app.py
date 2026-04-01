@@ -89,44 +89,45 @@ if st.sidebar.button("📊 執行過去 30 天勝率回測"):
 tickers = st.text_input("輸入監控股票代碼 (逗號分隔)", "2330,2317,2454,2303,2382,3231,2603")
 ticker_list = [t.strip() for t in tickers.split(",")]
 
+# 按鈕觸發後，後面的內容都要往右縮進 (Indented)
 if st.button("🚀 開始掃描並同步發送 LINE"):
-    results = []
-for ticker in ticker_list:
-    data = yf.download(f"{ticker}.TW", period="6mo", progress=False)
-    if data.empty:
-        continue
+    results = [] # 初始化結果清單
+    
+    for ticker in ticker_list:
+        data = yf.download(f"{ticker}.TW", period="6mo", progress=False)
+        if data.empty:
+            continue
 
-    score, now = calculate_v5_score(data)
-            
-    if now is not None and not now.empty:
-        now_price = now['Close']
-        entry_price = now_price
-        stop_loss = now_price * 0.93
+        score, now = calculate_v5_score(data)
                 
-        results.append({
-            "代碼": ticker,
-            "評分": score,
-            "現價": round(float(now_price), 2),
-            "進場參考": round(float(entry_price), 2),
-            "停損參考": round(float(stop_loss), 2)
-         })
-    else:
-                continue
-        # --- 多重門檻發送邏輯 ---
-if score >= 75:
-            # 決定警示等級
-            if score >= 90:
-                level_tag = "🚨【特急·強勢標的】"
-                recommend = "🔥 動能極強，建議優先關注！"
-            else:
-                level_tag = "🚀【波段建議通知】"
-                recommend = "✅ 趨勢確立，建議分批佈局。"
+        if now is not None and not now.empty:
+            now_price = now['Close']
+            entry_price = now_price
+            stop_loss = now_price * 0.93
+                    
+            results.append({
+                "代碼": ticker,
+                "評分": score,
+                "現價": round(float(now_price), 2),
+                "進場參考": round(float(entry_price), 2),
+                "停損參考": round(float(stop_loss), 2)
+            })
 
-            # 生成圖表連結
-            chart_url = f"https://tw.stock.yahoo.com/quote/{ticker}.TW"
-            
-            # 組合豐富版訊息
-            msg = f"""{level_tag}
+            # --- 多重門檻發送邏輯 (必須在 for 迴圈內) ---
+            if score >= 75:
+                # 決定警示等級
+                if score >= 90:
+                    level_tag = "🚨【特急·強勢標的】"
+                    recommend = "🔥 動能極強，建議優先關注！"
+                else:
+                    level_tag = "🚀【波段建議通知】"
+                    recommend = "✅ 趨勢確立，建議分批佈局。"
+
+                # 生成圖表連結
+                chart_url = f"https://tw.stock.yahoo.com/quote/{ticker}.TW"
+                
+                # 組合豐富版訊息
+                msg = f"""{level_tag}
 股票：{ticker}
 評分：{score} 分
 當前價格：{now_price:.2f}
@@ -135,8 +136,14 @@ if score >= 75:
 ------------------
 🛡️ 停損參考：{stop_loss:.2f}
 📊 即時線圖：{chart_url}"""
-            
-            send_line_message(line_token, line_user_id, msg)
+                
+                send_line_message(line_token, line_user_id, msg)
+        else:
+            continue
 
-    st.table(pd.DataFrame(results))
-    st.success("掃描完成！高分標的已同步推播至 LINE。")
+    # --- 顯示結果表格 (在 for 迴圈結束後，但仍在按鈕 if 內) ---
+    if results:
+        st.table(pd.DataFrame(results))
+        st.success("掃描完成！高分標的已同步推播至 LINE。")
+    else:
+        st.warning("掃描完成，但沒有符合條件的股票。")
