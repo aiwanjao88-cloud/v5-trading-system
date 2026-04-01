@@ -90,26 +90,26 @@ tickers = st.text_input("輸入監控股票代碼 (逗號分隔)", "2330,2317,24
 ticker_list = [t.strip() for t in tickers.split(",")]
 
 if st.button("🚀 開始掃描並同步發送 LINE"):
-        results = []
+    results = []
 for ticker in ticker_list:
-            data = yf.download(f"{ticker}.TW", period="6mo", progress=False)
-            if data.empty:
-                continue
+    data = yf.download(f"{ticker}.TW", period="6mo", progress=False)
+    if data.empty:
+        continue
 
-            score, now = calculate_v5_score(data)
+    score, now = calculate_v5_score(data)
             
-            if now is not None and not now.empty:
-                now_price = now['Close']
-                entry_price = now_price
-                stop_loss = now_price * 0.93
+    if now is not None and not now.empty:
+        now_price = now['Close']
+        entry_price = now_price
+        stop_loss = now_price * 0.93
                 
-                results.append({
-                    "代碼": ticker,
-                    "評分": score,
-                    "現價": round(float(now_price), 2),
-                    "進場參考": round(float(entry_price), 2),
-                    "停損參考": round(float(stop_loss), 2)
-                })
+        results.append({
+            "代碼": ticker,
+            "評分": score,
+            "現價": round(float(now_price), 2),
+            "進場參考": round(float(entry_price), 2),
+            "停損參考": round(float(stop_loss), 2)
+         })
             else:
                 continue
         # --- 多重門檻發送邏輯 ---
