@@ -1,6 +1,6 @@
 streamlit
 yfinance
-pandas==2.2.2
-pandas-ta==0.3.14b
+pandas
+pandas-ta
 requests
 plotly
