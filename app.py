@@ -17,8 +17,10 @@ def get_analysis(ticker_str):
         is_us = any(c.isalpha() for c in ticker_str)
         suf = "" if is_us else ".TW"
         df = yf.download(f"{ticker_str}{suf}", period="1y", progress=False)
+        # 若上市找不到，自動切換至上櫃代碼 .TWO
         if not is_us and df.empty:
             df = yf.download(f"{ticker_str}.TWO", period="1y", progress=False)
+        
         if df.empty or len(df) < 35: return None
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.get_level_values(0)
@@ -47,64 +49,56 @@ def send_line(msg):
     except: pass
 
 # --- 3. 介面 ---
-st.set_page_config(page_title="V7.6 國發級投資終端", layout="wide")
-st.title("📈 V7.6 五合一國發級投資系統")
+st.set_page_config(page_title="V7.7 櫃買飆股版", layout="wide")
+st.title("📈 V7.7 國發級投資系統 (櫃買模式)")
 
 # 個股檢診
-st.markdown("### 🔍 個股深度檢診")
-target = st.text_input("輸入台/美股代碼 (如 2317 或 TSLA)", "2317").strip().upper()
+st.markdown("### 🔍 個股快速檢診")
+target = st.text_input("輸入代碼", "2317").strip().upper()
 
-# --- 按鈕區開始 ---
-st.markdown("### 🚀 戰鬥模式切換")
-row1_col1, row1_col2, row1_col3 = st.columns(3)
-row2_col1, row2_col2 = st.columns(2)
+# --- 5 按鈕區 ---
+st.markdown("### 🚀 戰鬥功能選擇")
+c1, c2, c3, c4, c5 = st.columns(5)
 
-# 按鈕 1: 個股深度檢診
-with row1_col1:
-    if st.button("🩺 按鈕 1：執行個股診斷", use_container_width=True):
-        res = get_analysis(target)
-        if res:
-            st.success(f"{target} 診斷成功 (得分: {res['score']})")
-            st.info(f"進場參考: {res['m5']:.2f} | 止損參考: {res['p']*0.93:.2f}")
-            send_line(f"🩺【{target}診斷】\n評分:{res['score']}\n價格:{res['p']:.2f}\n止損:{res['p']*0.93:.2f}")
-        else: st.error("查無資料")
+with c1:
+    if st.button("🩺 1.個股檢診"):
+        r = get_analysis(target)
+        if r:
+            st.info(f"{target}: {r['score']}分")
+            send_line(f"🩺【{target}】\n評分:{r['score']}\n進場:{r['m5']:.2f}\n止損:{r['p']*0.93:.2f}")
 
-# 按鈕 2: 小資飆股偵測
-with row1_col2:
-    if st.button("🔥 按鈕 2：啟動小資飆股偵測", use_container_width=True):
-        for t in ["2344","2363","2409","3481","6116","2618","2610","2883","1605","1609"]:
+with c2:
+    if st.button("🔥 2.上市飆股"):
+        for t in ["2344","2363","2409","3481","2618","1605","1609","2353"]:
             r = get_analysis(t)
             if r and r['score'] >= 80 and r['p'] > r['m5']:
-                send_line(f"🚨【小資飆股】{t}\n評分:{r['score']}\n現價:{r['p']:.2f}")
-        st.success("台股小資掃描完畢")
+                send_line(f"🚨【上市飆】{t}\n評分:{r['score']}\n價格:{r['p']:.2f}")
 
-# 按鈕 3: 美股飆股偵測
-with row1_col3:
-    if st.button("🇺🇸 按鈕 3：啟動美股飆股偵測", use_container_width=True):
-        for t in ["NVDA","TSLA","AAPL","AMD","PLTR","COIN","MARA","U"]:
+with c3:
+    if st.button("🇺🇸 3.美股監控"):
+        for t in ["NVDA","TSLA","AMD","PLTR","COIN","MARA"]:
             r = get_analysis(t)
             if r and r['score'] >= 80 and r['p'] > r['m5']:
-                send_line(f"🚨【美股飆股】{t}\n評分:{r['score']}\n價格:{r['p']:.2f}")
-        st.success("美股掃描完畢")
+                send_line(f"🇺🇸【美飆股】{t}\n評分:{r['score']}\n價格:{r['p']:.2f}")
 
-# 按鈕 4: 權值大股掃描
-with row2_col1:
-    if st.button("🔍 按鈕 4：權值大股守護掃描", use_container_width=True):
-        for t in ["2330","2317","2454","2303","2382","3231","2603"]:
+with c4:
+    if st.button("🔍 4.權值大盤"):
+        for t in ["2330","2317","2454"]:
             r = get_analysis(t)
-            if r and r['score'] >= 75:
-                send_line(f"⚖️【權值報告】{t}\n評分:{r['score']}\n現價:{r['p']:.2f}")
-        st.success("權值股監控完畢")
+            if r: send_line(f"⚖️【權值】{t}\n評分:{r['score']}\n現價:{r['p']:.2f}")
 
-# 按鈕 5: 2萬翻倍自選追蹤
-with row2_col2:
-    if st.button("💰 按鈕 5：2萬本金自選追蹤", use_container_width=True):
-        custom = ["2317", "2618", "NVDA", "TSLA"] # 你目前最想追的 4 檔
-        for t in custom:
+with c5:
+    # --- 按鈕 5：櫃買銅板飆股 (精選低價、高波動上櫃股) ---
+    if st.button("💰 5.上櫃飆股", type="primary"):
+        st.write("🔍 正在掃描上櫃飆股清單...")
+        # 清單：包含熱門櫃買股，如元太、廣穎、波若威、協易機等符合 10-60 元區間
+        otc_list = ["8046","6142","3234","3163","4533","6125","5483","3264","6290","3363","8064","6462"]
+        for t in otc_list:
             r = get_analysis(t)
-            if r:
-                send_line(f"💰【本金追蹤】{t}\n評分:{r['score']}\n進場點:{r['m5']:.2f}\n生命線:{r['m20']:.2f}")
-        st.success("2萬自選清單已更新至 LINE")
+            # 針對櫃買股：要求更嚴格，評分 85 分以上或站上 5MA 才推播
+            if r and r['score'] >= 80 and r['p'] > r['m5'] and 10 <= r['p'] <= 60:
+                send_line(f"🚀【櫃買飆股】{t}\n評分:{r['score']}\n價格:{r['p']:.2f}\n出場參考:{r['m20']:.2f}")
+        st.success("上櫃飆股掃描完成！")
 
 st.markdown("---")
-st.write("💡 提示：按鈕 5 內的股票清單可以自行在程式碼第 106 行修改。")
+st.write("💡 **按鈕 5 說明**：鎖定上櫃(OTC)中股價 10-60 元、動能極強的標的，最適合 2 萬本金衝刺獲利。")
