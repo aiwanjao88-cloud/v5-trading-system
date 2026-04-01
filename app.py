@@ -12,6 +12,10 @@ def calculate_v5_score(df):
     try:
         if len(df) < 20: return 0, None
         
+        # 新增這行：防止 yfinance 的多級索引導致抓不到欄位
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(0)
+        
         # 技術指標計算
         df['EMA12'] = ta.ema(df['Close'], length=12)
         df['EMA26'] = ta.ema(df['Close'], length=26)
