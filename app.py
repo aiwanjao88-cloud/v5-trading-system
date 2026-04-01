@@ -8,22 +8,25 @@ import json
 # --- 1. 核心邏輯函數 ---
 
 def calculate_v5_score(df):
-    """國發級波段評分邏輯 V5"""
+    """國發級波段評分邏輯 V6 - 5MA/20MA 強化版"""
     try:
-        if len(df) < 20: return 0, None
+        if len(df) < 30: return 0, None
         
-        # 新增這行：防止 yfinance 的多級索引導致抓不到欄位
+        # 處理 yfinance 可能產生的多級索引 (Multi-Index)
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.get_level_values(0)
         
         # 技術指標計算
         df['EMA12'] = ta.ema(df['Close'], length=12)
         df['EMA26'] = ta.ema(df['Close'], length=26)
+        df['MA5'] = ta.sma(df['Close'], length=5)    # 短線濾網
+        df['MA20'] = ta.sma(df['Close'], length=20)  # 波段生命線
+        
         macd = ta.macd(df['Close'])
         df['MACD'] = macd['MACD_12_26_9']
         df['RSI'] = ta.rsi(df['Close'], length=14)
         
-        # 評分邏輯
+        # 評分邏輯 (總分 100)
         score = 0
         now = df.iloc[-1]
         
@@ -33,7 +36,7 @@ def calculate_v5_score(df):
         if 50 < now['RSI'] < 70: score += 20
         
         return score, now
-    except:
+    except Exception as e:
         return 0, None
 
 def send_line_message(token, user_id, message):
@@ -56,8 +59,8 @@ def send_line_message(token, user_id, message):
 
 # --- 2. Streamlit 介面與側邊欄 ---
 
-st.set_page_config(page_title="V5 國發級波段掃描器", layout="wide")
-st.title("📈 V5 國發級波段掃描器")
+st.set_page_config(page_title="V6 國發級波段掃描器", layout="wide")
+st.title("📈 V6 國發級波段掃描器 (5MA/20MA 強化版)")
 
 st.sidebar.header("🛠️ 系統控制面板")
 line_token = st.sidebar.text_input("LINE Channel Access Token", type="password")
@@ -70,11 +73,10 @@ if st.sidebar.button("📊 執行過去 30 天勝率回測"):
     win_count = 0
     total_signals = 0
     
-    # 這裡使用的 tickers 會從下方定義的清單抓取
     test_tickers = ["2330", "2317", "2454", "2303", "2382", "3231", "2603"] 
     for t in test_tickers:
-        df_hist = yf.download(f"{t}.TW", period="40d", progress=False)
-        if len(df_hist) < 30: continue
+        df_hist = yf.download(f"{t}.TW", period="60d", progress=False)
+        if len(df_hist) < 40: continue
         
         # 模擬 10 天前的情況
         score_10d, _ = calculate_v5_score(df_hist.iloc[:-10])
@@ -93,33 +95,35 @@ if st.sidebar.button("📊 執行過去 30 天勝率回測"):
 tickers = st.text_input("輸入監控股票代碼 (逗號分隔)", "2330,2317,2454,2303,2382,3231,2603")
 ticker_list = [t.strip() for t in tickers.split(",")]
 
-# 按鈕觸發後，後面的內容都要往右縮進 (Indented)
 if st.button("🚀 開始掃描並同步發送 LINE"):
-    results = [] # 初始化結果清單
+    results = [] 
     
     for ticker in ticker_list:
-        data = yf.download(f"{ticker}.TW", period="6mo", progress=False)
+        data = yf.download(f"{ticker}.TW", period="8mo", progress=False)
         if data.empty:
             continue
 
         score, now = calculate_v5_score(data)
                 
         if now is not None and not now.empty:
-            now_price = now['Close']
-            entry_price = now_price
+            now_price = float(now['Close'])
+            ma5 = float(now['MA5'])
+            ma20 = float(now['MA20'])
             stop_loss = now_price * 0.93
                     
             results.append({
                 "代碼": ticker,
                 "評分": score,
-                "現價": round(float(now_price), 2),
-                "進場參考": round(float(entry_price), 2),
-                "停損參考": round(float(stop_loss), 2)
+                "現價": round(now_price, 2),
+                "5MA": round(ma5, 2),
+                "20MA": round(ma20, 2),
+                "停損參考": round(stop_loss, 2)
             })
 
-            # --- 多重門檻發送邏輯 (必須在 for 迴圈內) ---
-            if score >= 0:
-                # 決定警示等級
+            # --- 進出場過濾邏輯 ---
+            if score >= 75:
+                is_above_ma5 = now_price > ma5
+                
                 if score >= 90:
                     level_tag = "🚨【特急·強勢標的】"
                     recommend = "🔥 動能極強，建議優先關注！"
@@ -127,27 +131,36 @@ if st.button("🚀 開始掃描並同步發送 LINE"):
                     level_tag = "🚀【波段建議通知】"
                     recommend = "✅ 趨勢確立，建議分批佈局。"
 
-                # 生成圖表連結
-                chart_url = f"https://tw.stock.yahoo.com/quote/{ticker}.TW"
+                # 5MA 進場過濾建議
+                if is_above_ma5:
+                    confirm_msg = "🟢 已站上 5MA，進場訊號確認。"
+                else:
+                    confirm_msg = "🟡 評分雖高但低於 5MA，建議等轉強再買。"
+
+                # 出場邏輯提醒
+                exit_logic = f"📉 出場參考：收盤跌破 20MA ({ma20:.2f})"
                 
-                # 組合豐富版訊息
+                # 組合訊息
                 msg = f"""{level_tag}
 股票：{ticker}
 評分：{score} 分
 當前價格：{now_price:.2f}
 
 {recommend}
+{confirm_msg}
 ------------------
 🛡️ 停損參考：{stop_loss:.2f}
-📊 即時線圖：{chart_url}"""
+⚓ 生命線(20MA)：{ma20:.2f}
+💡 {exit_logic}
+📊 即時線圖：https://tw.stock.yahoo.com/quote/{ticker}.TW"""
                 
                 send_line_message(line_token, line_user_id, msg)
         else:
             continue
 
-    # --- 顯示結果表格 (在 for 迴圈結束後，但仍在按鈕 if 內) ---
+    # --- 顯示結果表格 ---
     if results:
         st.table(pd.DataFrame(results))
-        st.success("掃描完成！高分標的已同步推播至 LINE。")
+        st.success("掃描完成！符合條件標的已發送至 LINE。")
     else:
-        st.warning("掃描完成，但沒有符合條件的股票。")
+        st.warning("掃描完成，目前沒有符合評分門檻的股票。")
