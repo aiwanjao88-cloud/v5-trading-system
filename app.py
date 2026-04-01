@@ -6,118 +6,140 @@ import pandas_ta as ta
 import requests
 import json
 import time
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
-# --- 1. 固定設定區 ---
-FIXED_LINE_TOKEN = "p0hZsq9njQwsK2QYkeTQjYYyJ87MpttosPY8E7e6HIbJns3Ii2AnYj4Z+QNaGCVrDphhuFlGKHJCnfMleQ1XlCJj2FRu2UJTYj9dAZUFIZfB4SLcVjXncnsGLrpflCwc1O3bU4OotJqW3zeslTFk8QdB04t89/1O/w1cDnyilFU="
-FIXED_USER_ID = "Ud25e9519467182c8b844df5260bccde5"
+# --- 1. 機構級參數 ---
+TOKEN = "p0hZsq9njQwsK2QYkeTQjYYyJ87MpttosPY8E7e6HIbJns3Ii2AnYj4Z+QNaGCVrDphhuFlGKHJCnfMleQ1XlCJj2FRu2UJTYj9dAZUFIZfB4SLcVjXncnsGLrpflCwc1O3bU4OotJqW3zeslTFk8QdB04t89/1O/w1cDnyilFU="
+USER_ID = "Ud25e9519467182c8b844df5260bccde5"
 
-# --- 2. 核心邏輯函數 ---
-
-def calculate_v5_score(df):
+# --- 2. 三位一體分析引擎 ---
+def get_v15_tri_analysis(ticker):
     try:
-        if len(df) < 30: return 0, None
-        if isinstance(df.columns, pd.MultiIndex):
-            df.columns = df.columns.get_level_values(0)
+        ticker = ticker.strip().upper()
+        is_us = any(c.isalpha() for c in ticker)
         
-        df['EMA12'] = ta.ema(df['Close'], length=12)
-        df['EMA26'] = ta.ema(df['Close'], length=26)
-        df['MA5'] = ta.sma(df['Close'], length=5)    
-        df['MA20'] = ta.sma(df['Close'], length=20)  
+        # A. 數據獲取 (對標 XQ/CMoney 數據清洗)
+        full_t = ticker if is_us else f"{ticker}.TW"
+        tk = yf.Ticker(full_t)
+        df = tk.history(period="1y", auto_adjust=True)
+        if df.empty and not is_us:
+            full_t = f"{ticker}.TWO"
+            tk = yf.Ticker(full_t)
+            df = tk.history(period="1y", auto_adjust=True)
         
+        if df.empty or len(df) < 60: return None
+        df.index = df.index.tz_localize(None)
+        if isinstance(df.columns, pd.MultiIndex): df.columns = df.columns.get_level_values(0)
+        
+        # B. 技術面 (MA + MACD + RSI)
+        df['MA5'] = ta.sma(df['Close'], length=5)
+        df['MA20'] = ta.sma(df['Close'], length=20)
+        df['MA60'] = ta.sma(df['Close'], length=60)
         macd = ta.macd(df['Close'])
-        df['MACD'] = macd['MACD_12_26_9']
-        df['RSI'] = ta.rsi(df['Close'], length=14)
+        df['MACD_H'] = macd['MACDh_12_26_9']
         
-        score = 0
+        # C. 籌碼面評估 (成交量暴增率)
+        avg_vol = df['Volume'].rolling(20).mean()
+        vol_ratio = df['Volume'].iloc[-1] / avg_vol.iloc[-1]
+        
+        # D. 基本面概況 (透過 Info 獲取，對標財報狗)
+        info = tk.info
+        pe_ratio = info.get('forwardPE', 0)
+        rev_growth = info.get('revenueGrowth', 0) * 100 # 營收成長率
+        
+        df = df.dropna()
         now = df.iloc[-1]
+        p, m20 = now['Close'], now['MA20']
         
-        if now['Close'] > now['EMA12']: score += 30
-        if now['EMA12'] > now['EMA26']: score += 30
-        if now['MACD'] > 0: score += 20
-        if 50 < now['RSI'] < 70: score += 20
+        # 三位一體評分
+        score = 0
+        if p > m20: score += 30                # 技術面：守住生命線
+        if now['MACD_H'] > 0: score += 20     # 技術面：動能向上
+        if vol_ratio > 1.2: score += 20        # 籌碼面：量增 (主力介入)
+        if rev_growth > 0: score += 20         # 基本面：成長性
+        if 0 < pe_ratio < 30: score += 10      # 基本面：估值合理
         
-        return score, now
-    except:
-        return 0, None
+        light = "🟢【三面共振-大買】" if score >= 85 else ("🔴【防禦警示-減碼】" if p < m20 else "🟡【等待結構轉強】")
+        
+        # 官方工具連結
+        mdj = f"https://www.moneydj.com/KMDJ/Search/SearchViewer.aspx?search={ticker}"
+        y_select = f"https://tw.stock.yahoo.com/quote/{ticker}/diagnostic" # Yahoo 健檢
+        
+        return {
+            "df": df.tail(100), "score": score, "light": light, "p": p, "m5": now['MA5'], "m20": m20, 
+            "vol_r": vol_ratio, "rev_g": rev_growth, "pe": pe_ratio, "mdj": mdj, "y_s": y_select, "news": tk.news[:2]
+        }
+    except: return None
 
-def send_line_message(message):
-    url = "https://api.line.me/v2/bot/message/push"
-    headers = {"Content-Type": "application/json", "Authorization": f"Bearer {FIXED_LINE_TOKEN}"}
-    payload = {"to": FIXED_USER_ID, "messages": [{"type": "text", "text": message}]}
-    try:
-        requests.post(url, headers=headers, data=json.dumps(payload), timeout=10)
-    except:
-        pass
+def send_v15_report(ticker, res):
+    news_txt = "\n".join([f"▪️ {n['title']}" for n in res['news']])
+    msg = (
+        f"🏛️ 國發 V15 三位一體報告：{ticker}\n"
+        f"級別：{res['light']}\n"
+        f"現價：{res['p']:.2f} | 總分：{res['score']}\n"
+        f"------------------\n"
+        f"📊 技術：{'多頭排列' if res['score']>70 else '整理中'}\n"
+        f"🔥 籌碼：量能放大 {res['vol_r']:.1f} 倍\n"
+        f"💎 基本：營收成長 {res['rev_g']:.1f}%\n"
+        f"------------------\n"
+        f"✅ 進場參考：{res['m5']:.2f}\n"
+        f"❌ 止損防線：{res['m20']:.2f}\n"
+        f"------------------\n"
+        f"📰 重點新聞：\n{news_txt}\n"
+        f"🔗 Yahoo選股器：{res['y_s']}\n"
+        f"🔗 MoneyDJ情報：{res['mdj']}"
+    )
+    headers = {"Content-Type":"application/json","Authorization":f"Bearer {TOKEN}"}
+    payload = {"to":USER_ID, "messages":[{"type":"text", "text":msg}]}
+    requests.post("https://api.line.me/v2/bot/message/push", headers=headers, data=json.dumps(payload), timeout=10)
 
 # --- 3. 介面設計 ---
+st.set_page_config(page_title="V15 三位一體終端", layout="wide")
+st.title("🛡️ 國發 V15：三位一體機構級選股終端")
 
-st.set_page_config(page_title="V7.1 國發級全域掃描器", layout="wide")
-st.title("📈 V7.1 國發級全域掃描器 (含即時線圖)")
+# 專業選股工具推薦區 (Sidebar)
+with st.sidebar:
+    st.header("🛠️ 管理人推薦工具")
+    st.markdown("1. **[財報狗](https://statementdog.com/)**：深挖基本面體質。")
+    st.markdown("2. **[Yahoo 股市選股器](https://tw.stock.yahoo.com/screener/)**：多維度指標篩選。")
+    st.markdown("3. **[XQ 策略選股](https://www.xq.com.tw/)**：專業量化腳本。")
+    st.markdown("4. **[CMoney 籌碼K線](https://www.cmoney.tw/)**：追蹤主力分點。")
 
-st.sidebar.header("🛠️ 系統狀態")
-st.sidebar.success("✅ LINE 授權已自動載入")
+diag_t = st.text_input("🔍 輸入全球標的 (如 2330, 00830, NVDA)", "2317").upper()
 
-ALL_TW_STOCKS = ["2330","2317","2454","2303","2382","3231","2603","2609","2615","2618","2610","2357","2353","2324","2301","2376","2377","2408","2409","3481","3037","3034","2379","6239","2881","2882","2886","2891","2884","2885","5880","2892","2880","2883","2887","2890","1101","1102","1301","1303","1326","6505","2005","2105","2201","2207","2912","5903","9904","9910"]
+if st.button("🚀 執行三位一體深度分析", use_container_width=True):
+    res = get_v15_tri_analysis(diag_t)
+    if res:
+        st.subheader(f"{res['light']} {diag_t}")
+        # 圖表
+        fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.05, row_heights=[0.7, 0.3])
+        fig.add_trace(go.Candlestick(x=res['df'].index, open=res['df']['Open'], high=res['df']['High'], low=res['df']['Low'], close=res['df']['Close'], name='K線'), row=1, col=1)
+        fig.add_trace(go.Scatter(x=res['df'].index, y=res['df']['MA20'], line=dict(color='#E91E63', width=2), name='20MA'), row=1, col=1)
+        fig.add_trace(go.Bar(x=res['df'].index, y=res['df']['Volume'], name='成交量', opacity=0.5), row=2, col=1)
+        fig.update_layout(template="plotly_dark", height=600, xaxis_rangeslider_visible=False)
+        st.plotly_chart(fig, use_container_width=True)
+        send_v15_report(diag_t, res)
+    else: st.error("查無資料，請確認代碼。")
 
-# --- 4. 掃描執行邏輯 ---
+# 戰略掃描區 (均內含三面評估)
+st.markdown("---")
+st.header("⚡ 戰略綠燈自動掃描 (三面共振版)")
+b1, b2, b3, b4 = st.columns(4)
+def run_v15_scan(stocks, mode):
+    p = st.progress(0)
+    for i, t in enumerate(stocks):
+        r = get_v15_tri_analysis(t)
+        if r and "🟢" in r['light']: send_v15_report(t, r)
+        p.progress((i+1)/len(stocks))
+        time.sleep(0.5)
+    st.success(f"{mode} 監控完畢")
 
-def run_scanner(target_list, is_full_scan=False):
-    results = []
-    progress_bar = st.progress(0)
-    status_text = st.empty()
-    
-    total = len(target_list)
-    for i, ticker in enumerate(target_list):
-        status_text.text(f"正在掃描 ({i+1}/{total}): {ticker}")
-        progress_bar.progress((i + 1) / total)
-        
-        data = yf.download(f"{ticker}.TW", period="8mo", progress=False)
-        if data.empty: continue
-
-        score, now = calculate_v5_score(data)
-        if now is not None and score >= 75:
-            now_price = float(now['Close'])
-            ma5 = float(now['MA5'])
-            ma20 = float(now['MA20'])
-            chart_url = f"https://tw.stock.yahoo.com/quote/{ticker}.TW"
-            
-            res = {
-                "代碼": ticker,
-                "評分": score,
-                "現價": round(now_price, 2),
-                "5MA": round(ma5, 2),
-                "20MA": round(ma20, 2)
-            }
-            results.append(res)
-            
-            ma5_status = "🟢 已站上 5MA" if now_price > ma5 else "🟡 低於 5MA (等待轉強)"
-            msg = f"🚨【波段監控報告】\n標的：{ticker}\n評分：{score} 分\n現價：{now_price:.2f}\n狀態：{ma5_status}\n------------------\n🛡️ 停損參考：{now_price*0.93:.2f}\n⚓ 生命線(20MA)：{ma20:.2f}\n\n📊 即時線圖查看：\n{chart_url}"
-            send_line_message(msg)
-        
-        # 修正縮排問題：確保這行在 if is_full_scan 裡面
-        if is_full_scan:
-            time.sleep(0.1)
-            
-    return results
-
-# --- 5. 主程式按鈕 ---
-
-col1, col2 = st.columns(2)
-
-with col1:
-    user_input = st.text_input("自選監控清單", "2330,2317,2454,2603")
-    if st.button("🚀 執行自選掃描"):
-        list_to_scan = [t.strip() for t in user_input.split(",") if t.strip()]
-        final_res = run_scanner(list_to_scan)
-        if final_res:
-            st.table(pd.DataFrame(final_res))
-            st.success("✅ 掃描完成！")
-
-with col2:
-    st.write("掃描預設 50 檔權值股")
-    if st.button("🔍 啟動全域大數據掃描"):
-        with st.spinner("大數據分析中..."):
-            final_res = run_scanner(ALL_TW_STOCKS, is_full_scan=True)
-            if final_res:
-                st.table(pd.DataFrame(final_res))
-                st.success(f"✅ 發現 {len(final_res)} 檔強勢標的！")
+with b1:
+    if st.button("📈 上市/ETF監控", use_container_width=True): run_v15_scan(["00830","0050","2330","2454"], "上市")
+with b2:
+    if st.button("🇺🇸 美股強勢監控", use_container_width=True): run_v15_scan(["NVDA","TSLA","PLTR","AAPL"], "美股")
+with b3:
+    if st.button("💰 小資飆股偵測", use_container_width=True): run_v15_scan(["2344","2409","2618","1605"], "小資")
+with b4:
+    if st.button("💎 上櫃飆股偵測", type="primary", use_container_width=True): run_v15_scan(["8046","6142","3163","6125","5483"], "上櫃")
