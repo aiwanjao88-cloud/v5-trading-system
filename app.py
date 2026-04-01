@@ -18,8 +18,6 @@ def calculate_v5_score(df):
         if len(df) < 35: return 0, None
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.get_level_values(0)
-        
-        # 確保資料是 float 格式
         df = df.astype(float)
         
         df['EMA12'] = ta.ema(df['Close'], length=12)
@@ -54,29 +52,38 @@ def send_line_message(message):
 
 # --- 3. 介面設計 ---
 
-st.set_page_config(page_title="V7.3 小資飆股終極版", layout="wide")
-st.title("📈 V7.3 國發級掃描器 (加強版)")
+st.set_page_config(page_title="V7.4 國際全域掃描器", layout="wide")
+st.title("📈 V7.4 國際全域掃描器 (台美股連動版)")
 
-# 擴充小資清單 (增加熱門銅板股)
-PENNY_STOCKS = ["2344","2363","2409","3481","6116","2618","2610","2883","2888","1605","1608","1609","2002","2014","2323","2353","2362","2449","3035","3706","1904","2641","2312","2324","2406","3041","3062","6142"]
+# 預設清單
+PENNY_STOCKS = ["2344","2363","2409","3481","6116","2618","2610","2883","1605","1609","2002","2353","2641"]
+US_STOCKS = ["AAPL", "MSFT", "GOOGL", "NVDA", "TSLA", "AMZN", "META", "AMD", "NFLX", "COIN", "PLTR", "SOFI", "U"]
 
 # --- 4. 掃描執行邏輯 ---
 
-def run_scanner(target_list, mode_name="一般"):
+def run_scanner(target_list, mode_name="台股"):
     results = []
     progress_bar = st.progress(0)
     status_text = st.empty()
     
     total = len(target_list)
     for i, ticker in enumerate(target_list):
-        status_text.text(f"[{mode_name}] 正在診斷: {ticker} ({i+1}/{total})")
+        status_text.text(f"[{mode_name}] 正在分析: {ticker} ({i+1}/{total})")
         progress_bar.progress((i + 1) / total)
         
-        # 嘗試下載資料 (先試上市 .TW，若空則試上櫃 .TWO)
-        data = yf.download(f"{ticker}.TW", period="8mo", progress=False)
-        if data.empty:
-            data = yf.download(f"{ticker}.TWO", period="8mo", progress=False)
-        
+        # 根據模式決定代碼格式
+        if mode_name == "美股":
+            full_ticker = ticker
+            chart_url = f"https://finance.yahoo.com/quote/{ticker}"
+        else:
+            # 台股自動嘗試上市/上櫃
+            full_ticker = f"{ticker}.TW"
+            data = yf.download(full_ticker, period="8mo", progress=False)
+            if data.empty:
+                full_ticker = f"{ticker}.TWO"
+            chart_url = f"https://tw.stock.yahoo.com/quote/{ticker}"
+
+        data = yf.download(full_ticker, period="8mo", progress=False)
         if data.empty: continue
 
         score, now = calculate_v5_score(data)
@@ -85,39 +92,46 @@ def run_scanner(target_list, mode_name="一般"):
             ma5 = float(now['MA5'])
             ma20 = float(now['MA20'])
             
-            # 過濾條件
-            if mode_name == "小資飆股":
-                if not (10 <= now_price <= 60) or score < 80: continue
-            else:
-                if score < 75: continue
-
-            if now_price > ma5:
-                chart_url = f"https://tw.stock.yahoo.com/quote/{ticker}"
+            # 門檻邏輯 (美股不限價格，台股小資限 10-60)
+            threshold = 80 if mode_name in ["小資飆股", "美股"] else 75
+            
+            if score >= threshold and now_price > ma5:
                 results.append({"代碼": ticker, "評分": score, "現價": round(now_price, 2), "20MA": round(ma20, 2)})
                 
-                msg = f"🔥【小資飆股訊號】\n標的：{ticker}\n評分：{score} 分\n價格：{now_price:.2f}\n------------------\n💡 短線轉強，站穩5MA！\n⚓ 出場參考(20MA)：{ma20:.2f}\n📊 即時看圖：{chart_url}"
+                currency = "USD" if mode_name == "美股" else "TWD"
+                msg = f"🌟【{mode_name}強勢訊號】\n標的：{ticker}\n評分：{score} 分\n價格：{now_price:.2f} {currency}\n------------------\n💡 短線噴發中，站穩5MA！\n⚓ 出場參考(20MA)：{ma20:.2f}\n📊 即時看圖：{chart_url}"
                 send_line_message(msg)
         
-        # 增加延遲防封鎖
         time.sleep(0.2)
             
     status_text.text("✅ 掃描任務完成！")
     return results
 
 # --- 5. 按鈕區 ---
-col1, col2, col3 = st.columns(3)
-with col1:
-    user_input = st.text_input("自選清單", "2330,2317,2454")
-    if st.button("🚀 執行自選掃描"):
-        res = run_scanner([t.strip() for t in user_input.split(",") if t.strip()], "自選")
-        if res: st.table(pd.DataFrame(res))
-with col2:
-    if st.button("🔍 權值股掃描"):
+row1_col1, row1_col2 = st.columns(2)
+row2_col1, row2_col2 = st.columns(2)
+
+with row1_col1:
+    if st.button("🔍 啟動權值股掃描 (台股)"):
         res = run_scanner(["2330","2317","2454","2303","2382","3231","2603"], "權值股")
         if res: st.table(pd.DataFrame(res))
-with col3:
-    if st.button("🔥 啟動小資飆股偵測"):
-        with st.spinner("搜尋中..."):
-            res = run_scanner(PENNY_STOCKS, "小資飆股")
+
+with row1_col2:
+    if st.button("🔥 啟動小資飆股偵測 (台股)"):
+        res = run_scanner(PENNY_STOCKS, "小資飆股")
+        if res: st.table(pd.DataFrame(res))
+
+with row2_col1:
+    if st.button("🇺🇸 啟動美股飆股偵測"):
+        with st.spinner("美股數據載入中..."):
+            res = run_scanner(US_STOCKS, "美股")
             if res: st.table(pd.DataFrame(res))
-            else: st.warning("目前無符合條件標的。")
+            else: st.warning("目前美股無符合條件標的。")
+
+with row2_col2:
+    custom_input = st.text_input("自選代碼 (台美股混搭)", "TSLA,NVDA,2330")
+    if st.button("🚀 執行混搭掃描"):
+        # 簡單判斷：純數字為台股，英文為美股
+        custom_list = [t.strip() for t in custom_input.split(",") if t.strip()]
+        res = run_scanner(custom_list, "混搭")
+        if res: st.table(pd.DataFrame(res))
