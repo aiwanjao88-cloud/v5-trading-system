@@ -8,21 +8,32 @@ from datetime import datetime, timedelta
 # --- 1. 初始設定與 Line 通知函式 ---
 st.set_page_config(page_title="V5 專業多選股系統", layout="wide")
 
-def send_line_notification(token, message):
-    """發送 Line Notify 通知"""
-    url = "https://notify-api.line.me/api/notify"
-    headers = {"Authorization": f"Bearer {token}"}
-    data = {"message": message}
+import json
+
+def send_line_message(token, user_id, message):
+    """使用 LINE Messaging API 發送推播訊息"""
+    if not token or not user_id:
+        return None
+    
+    url = "https://api.line.me/v2/bot/message/push"
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {token}"
+    }
+    payload = {
+        "to": user_id,
+        "messages": [{"type": "text", "text": message}]
+    }
     try:
-        response = requests.post(url, headers=headers, data=data)
+        response = requests.post(url, headers=headers, data=json.dumps(payload))
         return response.status_code
     except:
         return None
 
 # --- 2. 側邊欄配置 ---
 st.sidebar.header("🛠️ 系統控制面板")
-line_token = st.sidebar.text_input("Line Notify Token", type="password", help="請至 Line Notify 官網申請")
-watch_list = st.sidebar.multiselect(
+line_token = st.sidebar.text_input("LINE Channel Access Token", type="password")
+line_user_id = st.sidebar.text_input("您的 LINE User ID", type="password")
     "監控清單", 
     ["2330", "2317", "2454", "2303", "2603", "1513", "2382", "3231"],
     default=["2330", "2317", "2454"]
@@ -100,7 +111,7 @@ if results:
                     for _, row in high_score_stocks.iterrows():
                         msg += f"\n📈 {row['代碼']} | 評分: {row['評分']}\n價格: {row['價格']}\n建議: {row['建議進場']}\n停損: {row['停損參考']}\n"
                     
-                    status = send_line_notification(line_token, msg)
+                   status = send_line_message(line_token, line_user_id, msg)
                     if status == 200:
                         st.success("通知已成功發送！")
                     else:
