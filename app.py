@@ -90,7 +90,7 @@ tickers = st.text_input("輸入監控股票代碼 (逗號分隔)", "2330,2317,24
 ticker_list = [t.strip() for t in tickers.split(",")]
 
 if st.button("🚀 開始掃描並同步發送 LINE"):
-    results = []
+        results = []
 for ticker in ticker_list:
             data = yf.download(f"{ticker}.TW", period="6mo", progress=False)
             if data.empty:
@@ -138,5 +138,5 @@ if score >= 75:
             
             send_line_message(line_token, line_user_id, msg)
 
-st.table(pd.DataFrame(results))
-st.success("掃描完成！高分標的已同步推播至 LINE。")
+    st.table(pd.DataFrame(results))
+    st.success("掃描完成！高分標的已同步推播至 LINE。")
