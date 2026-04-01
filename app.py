@@ -6,123 +6,118 @@ import pandas_ta as ta
 import requests
 import json
 import time
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 
-# --- 1. 機構級參數授權 ---
-TOKEN = "p0hZsq9njQwsK2QYkeTQjYYyJ87MpttosPY8E7e6HIbJns3Ii2AnYj4Z+QNaGCVrDphhuFlGKHJCnfMleQ1XlCJj2FRu2UJTYj9dAZUFIZfB4SLcVjXncnsGLrpflCwc1O3bU4OotJqW3zeslTFk8QdB04t89/1O/w1cDnyilFU="
-USER_ID = "Ud25e9519467182c8b844df5260bccde5"
+# --- 1. 固定設定區 ---
+FIXED_LINE_TOKEN = "p0hZsq9njQwsK2QYkeTQjYYyJ87MpttosPY8E7e6HIbJns3Ii2AnYj4Z+QNaGCVrDphhuFlGKHJCnfMleQ1XlCJj2FRu2UJTYj9dAZUFIZfB4SLcVjXncnsGLrpflCwc1O3bU4OotJqW3zeslTFk8QdB04t89/1O/w1cDnyilFU="
+FIXED_USER_ID = "Ud25e9519467182c8b844df5260bccde5"
 
-# --- 2. 專業級數據處理引擎 (V14.1 美股強化修正) ---
-def get_v14_data(ticker):
+# --- 2. 核心邏輯函數 ---
+
+def calculate_v5_score(df):
     try:
-        ticker = ticker.strip().upper()
-        # 判定是否為美股 (含字母即判定為美股或ETF)
-        is_us = any(c.isalpha() for c in ticker)
-        
-        # 針對美股與台股分別優化下載邏輯
-        if is_us:
-            # 美股直接抓取 (不加後綴)
-            tk = yf.Ticker(ticker)
-            df = tk.history(period="1y", interval="1d", auto_adjust=True)
-        else:
-            # 台股自動嘗試上市/上櫃
-            df = yf.download(f"{ticker}.TW", period="1y", interval="1d", progress=False, auto_adjust=True)
-            if df.empty:
-                df = yf.download(f"{ticker}.TWO", period="1y", interval="1d", progress=False, auto_adjust=True)
-            tk = yf.Ticker(f"{ticker}.TW" if not df.empty else f"{ticker}.TWO")
-
-        if df is None or df.empty or len(df) < 60:
-            return None
-        
-        # [關鍵修正] 移除時區資訊，避免指標計算報錯
-        df.index = df.index.tz_localize(None)
-        
-        # [關鍵修正] 強制簡化欄位名稱，移除 MultiIndex
+        if len(df) < 30: return 0, None
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.get_level_values(0)
-        df = df.astype(float)
         
-        # 技術指標校準
-        df['MA5'] = ta.sma(df['Close'], length=5)
-        df['MA20'] = ta.sma(df['Close'], length=20)
-        df['MA60'] = ta.sma(df['Close'], length=60)
+        df['EMA12'] = ta.ema(df['Close'], length=12)
+        df['EMA26'] = ta.ema(df['Close'], length=26)
+        df['MA5'] = ta.sma(df['Close'], length=5)    
+        df['MA20'] = ta.sma(df['Close'], length=20)  
+        
+        macd = ta.macd(df['Close'])
+        df['MACD'] = macd['MACD_12_26_9']
         df['RSI'] = ta.rsi(df['Close'], length=14)
-        macd = ta.macd(df['Close'], fast=12, slow=26, signal=9)
-        df['MACD_H'] = macd['MACDh_12_26_9']
         
-        df = df.dropna()
-        now = df.iloc[-1]
-        p, m5, m20, m60 = now['Close'], now['MA5'], now['MA20'], now['MA60']
-        
-        # 機構評分邏輯
         score = 0
-        if p > m5 and p > m20: score += 40
-        if m5 > m20 > m60: score += 30
-        if now['MACD_H'] > 0 and 50 < now['RSI'] < 75: score += 30
+        now = df.iloc[-1]
         
-        light = "🟢【機構強勢買入】" if score >= 85 else ("🔴【防禦減碼止損】" if p < m20 or score < 50 else "🟡【區間橫盤觀望】")
+        if now['Close'] > now['EMA12']: score += 30
+        if now['EMA12'] > now['EMA26']: score += 30
+        if now['MACD'] > 0: score += 20
+        if 50 < now['RSI'] < 70: score += 20
         
-        # 獲取新聞
-        try:
-            news_list = tk.news[:3]
-            news_text = "\n".join([f"▪️ {n['title']}" for n in news_list])
-        except:
-            news_text = "新聞暫時無法載入。"
+        return score, now
+    except:
+        return 0, None
 
-        return {
-            "df": df.tail(100), "score": score, "light": light, "p": p, 
-            "m5": m5, "m20": m20, "m60": m60, "news": news_text,
-            "url": f"https://finance.yahoo.com/quote/{ticker}" if is_us else f"https://tw.stock.yahoo.com/quote/{ticker}"
-        }
-    except Exception as e:
-        return None
-
-def send_v14_line(ticker, res):
-    msg = (f"🏛️ 國發 V14.1 戰報：{ticker}\n評級：{res['light']}\n現價：{res['p']:.2f}\n"
-           f"------------------\n🎯 進場:{res['m5']:.2f}\n🛡️ 止損:{res['m20']:.2f}\n"
-           f"📈 趨勢:{res['m60']:.2f}\n------------------\n"
-           f"📰 即時新聞：\n{res['news']}\n🔗 數據源：{res['url']}")
-    headers = {"Content-Type":"application/json","Authorization":f"Bearer {TOKEN}"}
-    payload = {"to":USER_ID, "messages":[{"type":"text", "text":msg}]}
-    requests.post("https://api.line.me/v2/bot/message/push", headers=headers, data=json.dumps(payload), timeout=10)
+def send_line_message(message):
+    url = "https://api.line.me/v2/bot/message/push"
+    headers = {"Content-Type": "application/json", "Authorization": f"Bearer {FIXED_LINE_TOKEN}"}
+    payload = {"to": FIXED_USER_ID, "messages": [{"type": "text", "text": message}]}
+    try:
+        requests.post(url, headers=headers, data=json.dumps(payload), timeout=10)
+    except:
+        pass
 
 # --- 3. 介面設計 ---
-st.set_page_config(page_title="V14.1 美股強化版", layout="wide")
-st.title("🛡️ 國發級投資終端 V14.1 (美股連動修復版)")
 
-diag_t = st.text_input("🔍 全球標的診斷 (例: NVDA, TSLA, 2330)", "NVDA").upper()
+st.set_page_config(page_title="V7.1 國發級全域掃描器", layout="wide")
+st.title("📈 V7.1 國發級全域掃描器 (含即時線圖)")
 
-if st.button("🚀 執行深度戰術分析", use_container_width=True):
-    res = get_v14_data(diag_t)
-    if res:
-        st.subheader(f"{res['light']} {diag_t}")
-        # 專業 K 線圖
-        fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.05, row_heights=[0.7, 0.3])
-        fig.add_trace(go.Candlestick(x=res['df'].index, open=res['df']['Open'], high=res['df']['High'], low=res['df']['Low'], close=res['df']['Close'], name='K線'), row=1, col=1)
-        fig.add_trace(go.Scatter(x=res['df'].index, y=res['df']['MA20'], line=dict(color='#E91E63', width=2), name='20MA'), row=1, col=1)
-        fig.update_layout(template="plotly_dark", height=600, xaxis_rangeslider_visible=False)
-        st.plotly_chart(fig, use_container_width=True)
-        send_v14_line(diag_t, res)
-    else: st.error("查無資料。美股請確認代碼無誤（例: TSLA），台股請輸入代碼（例: 2330）。")
+st.sidebar.header("🛠️ 系統狀態")
+st.sidebar.success("✅ LINE 授權已自動載入")
 
-# 快速掃描區域
-st.markdown("---")
-b1, b2, b3, b4 = st.columns(4)
-def run_scan(stocks, mode):
-    p = st.progress(0)
-    for i, t in enumerate(stocks):
-        r = get_v14_data(t)
-        if r and "🟢" in r['light']: send_v14_line(t, r)
-        p.progress((i+1)/len(stocks))
-        time.sleep(0.5)
-    st.success(f"{mode} 掃描完畢")
+ALL_TW_STOCKS = ["2330","2317","2454","2303","2382","3231","2603","2609","2615","2618","2610","2357","2353","2324","2301","2376","2377","2408","2409","3481","3037","3034","2379","6239","2881","2882","2886","2891","2884","2885","5880","2892","2880","2883","2887","2890","1101","1102","1301","1303","1326","6505","2005","2105","2201","2207","2912","5903","9904","9910"]
 
-with b1:
-    if st.button("📈 上市/ETF監控", use_container_width=True): run_scan(["00830","0050","2330","2454"], "上市")
-with b2:
-    if st.button("🇺🇸 美股強勢監控", use_container_width=True): run_scan(["NVDA","TSLA","PLTR","AAPL","AMD"], "美股")
-with b3:
-    if st.button("💰 小資飆股偵測", use_container_width=True): run_scan(["2344","2409","2618","1605"], "小資")
-with b4:
-    if st.button("💎 上櫃飆股偵測", type="primary", use_container_width=True): run_scan(["8046","6142","3163","6125","5483"], "上櫃")
+# --- 4. 掃描執行邏輯 ---
+
+def run_scanner(target_list, is_full_scan=False):
+    results = []
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    
+    total = len(target_list)
+    for i, ticker in enumerate(target_list):
+        status_text.text(f"正在掃描 ({i+1}/{total}): {ticker}")
+        progress_bar.progress((i + 1) / total)
+        
+        data = yf.download(f"{ticker}.TW", period="8mo", progress=False)
+        if data.empty: continue
+
+        score, now = calculate_v5_score(data)
+        if now is not None and score >= 75:
+            now_price = float(now['Close'])
+            ma5 = float(now['MA5'])
+            ma20 = float(now['MA20'])
+            chart_url = f"https://tw.stock.yahoo.com/quote/{ticker}.TW"
+            
+            res = {
+                "代碼": ticker,
+                "評分": score,
+                "現價": round(now_price, 2),
+                "5MA": round(ma5, 2),
+                "20MA": round(ma20, 2)
+            }
+            results.append(res)
+            
+            ma5_status = "🟢 已站上 5MA" if now_price > ma5 else "🟡 低於 5MA (等待轉強)"
+            msg = f"🚨【波段監控報告】\n標的：{ticker}\n評分：{score} 分\n現價：{now_price:.2f}\n狀態：{ma5_status}\n------------------\n🛡️ 停損參考：{now_price*0.93:.2f}\n⚓ 生命線(20MA)：{ma20:.2f}\n\n📊 即時線圖查看：\n{chart_url}"
+            send_line_message(msg)
+        
+        # 修正縮排問題：確保這行在 if is_full_scan 裡面
+        if is_full_scan:
+            time.sleep(0.1)
+            
+    return results
+
+# --- 5. 主程式按鈕 ---
+
+col1, col2 = st.columns(2)
+
+with col1:
+    user_input = st.text_input("自選監控清單", "2330,2317,2454,2603")
+    if st.button("🚀 執行自選掃描"):
+        list_to_scan = [t.strip() for t in user_input.split(",") if t.strip()]
+        final_res = run_scanner(list_to_scan)
+        if final_res:
+            st.table(pd.DataFrame(final_res))
+            st.success("✅ 掃描完成！")
+
+with col2:
+    st.write("掃描預設 50 檔權值股")
+    if st.button("🔍 啟動全域大數據掃描"):
+        with st.spinner("大數據分析中..."):
+            final_res = run_scanner(ALL_TW_STOCKS, is_full_scan=True)
+            if final_res:
+                st.table(pd.DataFrame(final_res))
+                st.success(f"✅ 發現 {len(final_res)} 檔強勢標的！")
