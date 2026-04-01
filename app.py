@@ -96,17 +96,17 @@ if st.button("🚀 開始掃描並同步發送 LINE"):
         if data.empty: continue
         
         score, now = calculate_v5_score(data)
-      if now is not None and not now.empty:
-            now_price = now['Close']
-            entry_price = now_price
-            stop_loss = now_price * 0.93
+if now is not None and not now.empty:
+    now_price = now['Close']
+    entry_price = now_price
+    stop_loss = now_price * 0.93
 
-            results.append({
-                "代碼": ticker,
-                "評分": score,
-                "現價": round(now_price, 2),
-                "進場參考": round(entry_price, 2),
-                "停損參考": round(stop_loss, 2)
+    results.append({
+         "代碼": ticker,
+         "評分": score,
+         "現價": round(now_price, 2),
+         "進場參考": round(entry_price, 2),
+         "停損參考": round(stop_loss, 2)
             })
         else:
             # 如果這顆股票抓不到資料，就跳過它，繼續抓下一顆
