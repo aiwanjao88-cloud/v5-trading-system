@@ -24,7 +24,7 @@ def calculate_v5_score(df):
         df['EMA26'] = ta.ema(df['Close'], length=26)
         df['MA5'] = ta.sma(df['Close'], length=5)    
         df['MA20'] = ta.sma(df['Close'], length=20)  
-        df['MA60'] = ta.sma(df['Close'], length=60) # 季線
+        df['MA60'] = ta.sma(df['Close'], length=60)
         
         macd = ta.macd(df['Close'])
         df['MACD'] = macd['MACD_12_26_9']
@@ -47,60 +47,14 @@ def send_line_message(message):
     payload = {"to": FIXED_USER_ID, "messages": [{"type": "text", "text": message}]}
     try:
         requests.post(url, headers=headers, data=json.dumps(payload), timeout=10)
-    except: pass
+    except:
+        pass
 
 # --- 3. 介面設計 ---
 
-st.set_page_config(page_title="V7.5 個股進退場檢診", layout="wide")
-st.title("📈 V7.5 國發級個股檢診 (台美通用)")
+st.set_page_config(page_title="V7.5 深度檢診版", layout="wide")
+st.title("📈 V7.5 國發級檢診與全域掃描")
 
 # --- 4. 個股深度檢診區 ---
-st.markdown("---")
 st.header("🔍 個股深度檢診 (進退場建議)")
-diag_ticker = st.text_input("輸入要診斷的股票代碼 (例: 2317 或 TSLA)", "2317")
-
-if st.button("🩺 開始個股檢診"):
-    with st.spinner("正在分析技術面細節..."):
-        # 判斷台美股
-        suffix = "" if any(c.isalpha() for c in diag_ticker) else ".TW"
-        data = yf.download(f"{diag_ticker}{suffix}", period="1y", progress=False)
-        if data.empty and suffix == ".TW":
-            data = yf.download(f"{diag_ticker}.TWO", period="1y", progress=False)
-        
-        if not data.empty:
-            score, now = calculate_v5_score(data)
-            now_price = float(now['Close'])
-            ma5 = float(now['MA5'])
-            ma20 = float(now['MA20'])
-            ma60 = float(now['MA60'])
-            
-            # --- 診斷邏輯 ---
-            is_strong = now_price > ma5
-            trend = "多頭排列" if ma5 > ma20 > ma60 else "盤整或轉弱"
-            
-            st.subheader(f"📊 {diag_ticker} 診斷報告 (現價: {now_price:.2f})")
-            
-            c1, c2, c3 = st.columns(3)
-            c1.metric("綜合評分", f"{score} 分")
-            c2.metric("5MA 位置", f"{ma5:.2f}", f"{now_price-ma5:.2f}", delta_color="normal")
-            c3.metric("波段生命線", f"{ma20:.2f}")
-
-            # --- 具體建議區 ---
-            st.info(f"🚩 **趨勢判讀**：目前處於 **{trend}**。")
-            
-            adv_col1, adv_col2 = st.columns(2)
-            with adv_col1:
-                st.success("🟢 進場點建議")
-                if score >= 75 and is_strong:
-                    st.write(f"1. **即刻關注**：目前已站在 5MA 以上，動能強勁。")
-                    st.write(f"2. **理想買點**：若回測 {ma5:.2f} 不破可分批佈局。")
-                else:
-                    st.write(f"1. **等待轉強**：目前評分不足或低於 5MA，建議等股價站穩 {ma5:.2f} 再進場。")
-
-            with adv_col2:
-                st.error("🔴 退場/止損建議")
-                st.write(f"1. **短線止損**：跌破 {now_price*0.93:.2f} (約 7%) 強制出場。")
-                st.write(f"2. **波段出場**：收盤價有效跌破 20MA ({ma20:.2f}) 獲利了結。")
-            
-            # 發送 LINE 深度報告
-            line_msg = f"🩺【個股檢診報告：{diag_ticker}】\n評分：{score}分\n現價：{now_price:.2f}\n------------------\n✅ 進場：站穩 {ma5:.2f} 為強勢起漲點。\n❌ 止損：{now_price*0.93:.2f}\n📉 出場：跌破 20MA ({ma20:.2f})\n
+diag_ticker = st.text_input("輸入股票代碼 (例:
