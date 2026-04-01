@@ -113,7 +113,7 @@ for ticker in ticker_list:
             else:
                 continue
         # --- 多重門檻發送邏輯 ---
-        if score >= 75:
+if score >= 75:
             # 決定警示等級
             if score >= 90:
                 level_tag = "🚨【特急·強勢標的】"
