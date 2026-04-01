@@ -70,4 +70,8 @@ st.sidebar.info(f"👤 接收者 ID: {FIXED_USER_ID[:10]}...")
 
 # --- 4. 主程式執行區 ---
 
-tickers = st.text_input("輸入監控股票代碼 (逗號分隔)", "2330,231
+tickers = st.text_input("輸入監控股票代碼 (逗號分隔)", "2330,2317,2454,2303,2382,3231,2603")
+ticker_list = [t.strip() for t in tickers.split(",") if t.strip()]
+
+if st.button("🚀 開始掃描並同步發送 LINE"):
+    results = []
