@@ -9,26 +9,24 @@ import time
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-# --- 1. 機構級參數 ---
+# --- 1. 核心安全參數 ---
 TOKEN = "p0hZsq9njQwsK2QYkeTQjYYyJ87MpttosPY8E7e6HIbJns3Ii2AnYj4Z+QNaGCVrDphhuFlGKHJCnfMleQ1XlCJj2FRu2UJTYj9dAZUFIZfB4SLcVjXncnsGLrpflCwc1O3bU4OotJqW3zeslTFk8QdB04t89/1O/w1cDnyilFU="
 USER_ID = "Ud25e9519467182c8b844df5260bccde5"
 
-# --- 2. 核心數據分析引擎 (修復 KeyError 與 美股相容性) ---
-def get_v15_analysis(ticker):
+# --- 2. 機構級分析引擎 (對標收費軟體數據精度) ---
+def get_v16_premium_analysis(ticker):
     try:
         ticker = ticker.strip().upper()
-        # 判定是否為美股：含有字母且不全是數字
         is_us = any(c.isalpha() for c in ticker)
         
-        # 多重路徑抓取數據
         df = pd.DataFrame()
         tk = None
         
+        # 數據抓取：自動路徑切換
         if is_us:
             tk = yf.Ticker(ticker)
             df = tk.history(period="1y", interval="1d", auto_adjust=True)
         else:
-            # 台股自動嘗試上市 (.TW) 或上櫃 (.TWO)
             for suffix in [".TW", ".TWO"]:
                 temp_df = yf.download(f"{ticker}{suffix}", period="1y", progress=False, auto_adjust=True)
                 if not temp_df.empty:
@@ -36,111 +34,126 @@ def get_v15_analysis(ticker):
                     tk = yf.Ticker(f"{ticker}{suffix}")
                     break
 
-        if df.empty or len(df) < 60:
-            return None
+        if df.empty or len(df) < 60: return None
 
-        # [關鍵修復] 移除時區並簡化欄位，防止技術指標計算報錯
+        # 數據清洗：移除時區與展平索引 (核心穩定性優化)
         df.index = df.index.tz_localize(None)
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.get_level_values(0)
         df = df.astype(float)
 
-        # 指標計算
+        # 指標計算：對標機構參數
         df['MA5'] = ta.sma(df['Close'], length=5)
         df['MA20'] = ta.sma(df['Close'], length=20)
         df['MA60'] = ta.sma(df['Close'], length=60)
         df['RSI'] = ta.rsi(df['Close'], length=14)
         macd = ta.macd(df['Close'])
-        # 防禦性抓取 MACD
-        df['MACD_H'] = macd.iloc[:, 1] if macd is not None else 0
+        # 安全存取 MACD 柱狀圖
+        df['MACD_H'] = macd.iloc[:, 2] if macd is not None else 0
         
-        # 籌碼面：量比
+        # 籌碼面：量比分析 (量增價揚判定)
         vol_avg = df['Volume'].rolling(20).mean()
-        vol_ratio = df['Volume'].iloc[-1] / vol_avg.iloc[-1] if vol_avg.iloc[-1] != 0 else 1
+        vol_ratio = float(df['Volume'].iloc[-1] / vol_avg.iloc[-1]) if vol_avg.iloc[-1] > 0 else 1
 
-        # 基本面 (防禦性抓取 Info)
+        # 情報摘要 (對標 Alpha Vantage 新聞接口)
+        safe_news = []
         try:
-            info = tk.info
-            rev_g = info.get('revenueGrowth', 0) * 100
-        except:
-            rev_g = 0
+            raw_news = tk.news[:3]
+            for n in raw_news:
+                title = n.get('title') or n.get('headline') or "精選產業情報"
+                safe_news.append(title)
+        except: pass
 
-        # [關鍵修復] 確保計算後的最新數據沒有 NaN
         df_clean = df.dropna()
         if df_clean.empty: return None
         now = df_clean.iloc[-1]
         
-        # 評分邏輯
+        # 三位一體評分權重
         score = 0
-        if now['Close'] > now['MA20']: score += 40
-        if now['MACD_H'] > 0: score += 30
-        if vol_ratio > 1.2: score += 20
-        if rev_g > 0: score += 10
+        p, m5, m20 = float(now['Close']), float(now['MA5']), float(now['MA20'])
+        if p > m20: score += 40               # 技術面：守住生命線
+        if float(now['MACD_H']) > 0: score += 30 # 動能面：紅柱增長
+        if vol_ratio > 1.2: score += 20       # 籌碼面：主力介入
+        if 50 < float(now['RSI']) < 75: score += 10 # 心理面：強勢區
         
-        light = "🟢【三面共振-大買】" if score >= 80 else ("🔴【絕對止損】" if now['Close'] < now['MA20'] else "🟡【區間盤整】")
+        light = "🟢【機構級強勢標的】" if score >= 85 and p > m5 else ("🔴【絕對風險止損】" if p < m20 or score < 50 else "🟡【區間結構整理】")
         
         return {
             "df": df_clean.tail(100), "score": score, "light": light, 
-            "p": now['Close'], "m5": now['MA5'], "m20": now['MA20'],
-            "vol_r": vol_ratio, "rev_g": rev_g, "news": tk.news[:2]
+            "p": p, "m5": m5, "m20": m20, "vol_r": vol_ratio, "news": safe_news,
+            "mdj": f"https://www.moneydj.com/KMDJ/Search/SearchViewer.aspx?search={ticker}"
         }
-    except Exception as e:
-        return None
+    except: return None
 
-def send_line_v15(ticker, res):
-    news_txt = "\n".join([f"▪️ {n['title']}" for n in res['news']]) if res['news'] else "暫無重大新聞。"
-    msg = (f"🏛️ V15.1 戰報：{ticker}\n級別：{res['light']}\n現價：{res['p']:.2f} | 分數：{res['score']}\n"
-           f"------------------\n📊 技術：趨勢向上\n🔥 籌碼：量比 {res['vol_r']:.1f}\n💎 基本：營收增 {res['rev_g']:.1f}%\n"
-           f"------------------\n✅ 進場:{res['m5']:.2f} | ❌ 止損:{res['m20']:.2f}\n"
-           f"------------------\n📰 新聞：\n{news_txt}")
+def send_v16_line(ticker, res):
+    news_text = ""
+    for i, title in enumerate(res['news']):
+        news_text += f" {i+1}. {title}\n"
+    if not news_text: news_text = "目前暫無重大新聞披露。"
+
+    msg = (f"🏛️ 國發 V16.0 戰略戰報\n標的：{ticker}\n級別：{res['light']}\n"
+           f"------------------\n現價：{res['p']:.2f} | 總分：{res['score']}\n"
+           f"📊 籌碼量比：{res['vol_r']:.1f}\n"
+           f"------------------\n✅ 進場參考：{res['m5']:.2f}\n❌ 止損防線：{res['m20']:.2f}\n"
+           f"------------------\n📰 即時情報摘要：\n{news_text}\n"
+           f"🔗 深度情報：{res['mdj']}")
+    
     headers = {"Content-Type":"application/json","Authorization":f"Bearer {TOKEN}"}
     payload = {"to":USER_ID, "messages":[{"type":"text", "text":msg}]}
-    requests.post("https://api.line.me/v2/bot/message/push", headers=headers, data=json.dumps(payload), timeout=10)
+    try: requests.post("https://api.line.me/v2/bot/message/push", headers=headers, data=json.dumps(payload), timeout=10)
+    except: pass
 
-# --- 3. 介面與顯示 ---
-st.set_page_config(page_title="V15.1 穩定防禦版", layout="wide")
-st.title("🛡️ 國發 V15.1：三位一體穩定防禦終端")
+# --- 3. 專業級 UI 佈局 ---
+st.set_page_config(page_title="V16.0 國發終端", layout="wide")
+st.title("🛡️ 國發級投資終端 V16.0 (機構級嚴謹版)")
 
-# 側邊欄工具
 with st.sidebar:
-    st.header("🛠️ 管理人推薦")
-    st.markdown("1. [財報狗](https://statementdog.com/)\n2. [Yahoo選股器](https://tw.stock.yahoo.com/screener/)\n3. [MoneyDJ](https://www.moneydj.com/)")
+    st.header("🛠️ 專業選股工具箱")
+    st.markdown("- [財報狗](https://statementdog.com/) (基本面體質)")
+    st.markdown("- [Yahoo股市選股](https://tw.stock.yahoo.com/screener/) (指標篩選)")
+    st.markdown("- [XQ官方部落格](https://www.xq.com.tw/blog/) (量化邏輯)")
 
-diag_t = st.text_input("🔍 輸入全球標的 (例: 2330, VOO, NVDA)", "2317").upper()
+diag_t = st.text_input("🔍 輸入全球標的代碼 (VOO, NVDA, 2317, 00830)", "2317").upper().strip()
 
-if st.button("🚀 執行三位一體分析", use_container_width=True):
-    with st.spinner("數據同步與指標計算中..."):
-        res = get_v15_analysis(diag_t)
+if st.button("🚀 啟動三位一體戰略檢診", use_container_width=True):
+    with st.spinner("正在執行多維度數據校準..."):
+        res = get_v16_premium_analysis(diag_t)
         if res:
-            st.subheader(f"{res['light']} {diag_t} 分數: {res['score']}")
-            # 專業K線圖
-            fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.05, row_heights=[0.7, 0.3])
+            st.subheader(f"{res['light']} {diag_t} | 戰略評分: {res['score']}")
+            
+            # 專業 K 線圖繪製
+            fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.03, row_heights=[0.7, 0.3])
             fig.add_trace(go.Candlestick(x=res['df'].index, open=res['df']['Open'], high=res['df']['High'], low=res['df']['Low'], close=res['df']['Close'], name='K線'), row=1, col=1)
-            fig.add_trace(go.Scatter(x=res['df'].index, y=res['df']['MA20'], line=dict(color='#E91E63', width=2), name='20MA'), row=1, col=1)
-            fig.add_trace(go.Bar(x=res['df'].index, y=res['df']['Volume'], name='量', opacity=0.5), row=2, col=1)
-            fig.update_layout(template="plotly_dark", height=600, xaxis_rangeslider_visible=False)
+            fig.add_trace(go.Scatter(x=res['df'].index, y=res['df']['MA20'], line=dict(color='#E91E63', width=2), name='20MA(生命線)'), row=1, col=1)
+            
+            # 成交量配色
+            colors = ['#26a69a' if res['df']['Close'].iloc[i] >= res['df']['Open'].iloc[i] else '#ef5350' for i in range(len(res['df']))]
+            fig.add_trace(go.Bar(x=res['df'].index, y=res['df']['Volume'], marker_color=colors, name='成交量', opacity=0.8), row=2, col=1)
+            
+            fig.update_layout(template="plotly_dark", height=700, xaxis_rangeslider_visible=False, margin=dict(t=30, b=10, l=10, r=10))
             st.plotly_chart(fig, use_container_width=True)
-            send_line_v15(diag_t, res)
+            
+            send_v16_line(diag_t, res)
         else:
-            st.error("查無資料或數據源超時，請檢查代碼（美股如 VOO, 台股如 2330）。")
+            st.error("查無資料或數據連線異常。台股請輸入代碼 (2330)，美股請確認代碼無誤 (NVDA, VOO)。")
 
-# 自動監控
+# 戰略掃描區
 st.markdown("---")
 b1, b2, b3, b4 = st.columns(4)
-def run_scan(stocks, mode):
+def run_strategic_scan(stocks, mode):
     p = st.progress(0)
     for i, t in enumerate(stocks):
-        r = get_v15_analysis(t)
-        if r and "🟢" in r['light']: send_line_v15(t, r)
+        r = get_v16_premium_analysis(t)
+        if r and "🟢" in r['light']: send_v16_line(t, r)
         p.progress((i+1)/len(stocks))
         time.sleep(0.5)
-    st.success(f"{mode} 掃描完畢")
+    st.success(f"{mode} 戰略監控完成")
 
 with b1:
-    if st.button("📈 上市/ETF監控", use_container_width=True): run_scan(["0050","00830","2330","2454"], "上市")
+    if st.button("📈 上市/ETF監控", use_container_width=True): run_strategic_scan(["0050","00830","2330","2317"], "上市ETF")
 with b2:
-    if st.button("🇺🇸 美股強勢監控", use_container_width=True): run_scan(["VOO","NVDA","TSLA","AAPL"], "美股")
+    if st.button("🇺🇸 美股強勢監控", use_container_width=True): run_strategic_scan(["VOO","NVDA","TSLA","AAPL"], "美股強勢")
 with b3:
-    if st.button("💰 小資飆股偵測", use_container_width=True): run_scan(["2344","2409","2618","1605"], "小資")
+    if st.button("💰 小資飆股偵測", use_container_width=True): run_strategic_scan(["2344","2409","2618","1605"], "小資飆股")
 with b4:
-    if st.button("🚀 上櫃飆股偵測", type="primary", use_container_width=True): run_scan(["8046","6142","3163","6125","5483"], "上櫃")
+    if st.button("🚀 上櫃飆股偵測", type="primary", use_container_width=True): run_strategic_scan(["8046","6142","3163","6125","5483"], "上櫃飆股")
