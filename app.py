@@ -108,10 +108,10 @@ if now is not None and not now.empty:
          "進場參考": round(entry_price, 2),
          "停損參考": round(stop_loss, 2)
             })
-        else:
-            # 如果這顆股票抓不到資料，就跳過它，繼續抓下一顆
-            st.warning(f"代碼 {ticker} 暫時抓不到資料，已跳過。")
-            continue
+else:
+      # 如果這顆股票抓不到資料，就跳過它，繼續抓下一顆
+      st.warning(f"代碼 {ticker} 暫時抓不到資料，已跳過。")
+    continue
 
         # --- 多重門檻發送邏輯 ---
         if score >= 75:
