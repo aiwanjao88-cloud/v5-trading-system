@@ -114,9 +114,9 @@ if st.button("🚀 開始掃描並同步發送 LINE"):
             })
 
             # --- 多重門檻發送邏輯 (必須在 for 迴圈內) ---
-            if score >= 50:
+            if score >= 75:
                 # 決定警示等級
-                if score >= 75:
+                if score >= 90:
                     level_tag = "🚨【特急·強勢標的】"
                     recommend = "🔥 動能極強，建議優先關注！"
                 else:
