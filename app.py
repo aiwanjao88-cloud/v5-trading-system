@@ -40,8 +40,8 @@ def get_analysis(ticker_str):
         if now['MACD'] > 0: score += 20
         if 50 < now['RSI'] < 70: score += 20
         
-        chart = f"https://finance.yahoo.com/quote/{ticker_str}" if is_us else f"https://tw.stock.yahoo.com/quote/{ticker_str}"
-        return {"score": score, "p": float(now['Close']), "m5": float(now['MA5']), "m20": float(now['MA20']), "url": chart}
+        url = f"https://finance.yahoo.com/quote/{ticker_str}" if is_us else f"https://tw.stock.yahoo.com/quote/{ticker_str}"
+        return {"score": score, "p": float(now['Close']), "m5": float(now['MA5']), "m20": float(now['MA20']), "url": url}
     except:
         return None
 
@@ -52,54 +52,70 @@ def send_line(msg):
     try: requests.post(url, headers=headers, data=json.dumps(payload), timeout=10)
     except: pass
 
-# --- 3. 介面與按鈕 ---
-st.set_page_config(page_title="V7.9 專業版", layout="wide")
-st.title("🛡️ 國發級五合一戰略儀表板")
-
-# 個股診斷
-target = st.text_input("🔍 輸入診斷代碼 (如 2317 或 TSLA)", "2317").strip().upper()
+# --- 3. 介面設計 ---
+st.set_page_config(page_title="V8.0 國發投資終端", layout="wide")
+st.title("🛡️ 國發級五大戰略掃描系統")
 st.markdown("---")
 
-# 5 個功能按鈕
+# 按鈕區域佈局
 c1, c2, c3, c4, c5 = st.columns(5)
 
+# --- 按鈕 1：個股檢診 ---
 with c1:
-    if st.button("🩺 1.個股檢診", use_container_width=True):
-        r = get_analysis(target)
+    st.write("🩺 **個股診斷**")
+    diag_target = st.text_input("輸入代碼", "2317", key="diag").strip().upper()
+    if st.button("🔍 開始檢診", use_container_width=True):
+        r = get_analysis(diag_target)
         if r:
-            send_line(f"🩺【{target}診斷】\n評分:{r['score']}\n價格:{r['p']:.2f}\n止損:{r['p']*0.93:.2f}\n📊看圖:{r['url']}")
-            st.success(f"{target} 報告已送出")
+            msg = f"🩺【個股檢診：{diag_target}】\n評分：{r['score']}\n價格：{r['p']:.2f}\n進場點：{r['m5']:.2f}\n止損參考：{r['p']*0.93:.2f}\n📊看圖：{r['url']}"
+            send_line(msg)
+            st.success(f"已發送 {diag_target} 報告")
 
+# --- 按鈕 2：上市波段飆股 ---
 with c2:
-    if st.button("📈 2.上市飆股", use_container_width=True):
-        for t in ["2344","2363","2409","3481","2618","1605","2353"]:
+    st.write("📈 **上市波段**")
+    if st.button("🚀 啟動掃描", key="tw_big", use_container_width=True):
+        list_2 = ["2330","2317","2454","2382","3231","2603","2303","2609"]
+        for t in list_2:
             r = get_analysis(t)
-            if r and r['score'] >= 80 and r['p'] > r['m5']:
-                send_line(f"🚨【上市飆】{t}\n評分:{r['score']}\n價格:{r['p']:.2f}\n📊看圖:{r['url']}")
-        st.success("上市掃描完畢")
+            if r and r['score'] >= 80:
+                send_line(f"🚀【上市波段飆股】{t}\n評分：{r['score']}\n價格：{r['p']:.2f}\n📊即時看圖：{r['url']}")
+        st.info("上市掃描完畢")
 
+# --- 按鈕 3：美股強勢訊號 ---
 with c3:
-    if st.button("🇺🇸 3.美股偵測", use_container_width=True):
-        for t in ["NVDA","TSLA","AMD","PLTR","COIN","MARA"]:
+    st.write("🇺🇸 **美股強勢**")
+    if st.button("⚡ 訊號偵測", key="us_sig", use_container_width=True):
+        list_3 = ["NVDA","TSLA","AAPL","AMD","PLTR","COIN","MSFT","META"]
+        for t in list_3:
+            r = get_analysis(t)
+            if r and r['score'] >= 85:
+                send_line(f"🇺🇸【美股強勢訊號】{t}\n評分：{r['score']}\n現價：{r['p']:.2f} USD\n📊即時看圖：{r['url']}")
+        st.info("美股掃描完畢")
+
+# --- 按鈕 4：小資飆股訊號 ---
+with c4:
+    st.write("💰 **小資飆股**")
+    if st.button("🔥 挖掘潛力", key="penny", use_container_width=True):
+        list_4 = ["2344","2409","3481","6116","2618","1605","1609","2353","2324"]
+        for t in list_4:
+            r = get_analysis(t)
+            # 鎖定低價、高動能
+            if r and r['score'] >= 80 and 10 <= r['p'] <= 60:
+                send_line(f"🔥【小資飆股訊號】{t}\n評分：{r['score']}\n價格：{r['p']:.2f}\n📊即時看圖：{r['url']}")
+        st.info("小資掃描完畢")
+
+# --- 按鈕 5：上櫃飆股訊號 ---
+with c5:
+    st.write("🚀 **上櫃飆股**")
+    # type="primary" 讓按鈕變色，表示這是高爆發力的戰區
+    if st.button("💎 啟動 OTC", type="primary", key="otc_sig", use_container_width=True):
+        list_5 = ["8046","6142","3234","3163","4533","6125","5483","6290","8064","3363"]
+        for t in list_5:
             r = get_analysis(t)
             if r and r['score'] >= 80 and r['p'] > r['m5']:
-                send_line(f"🇺🇸【美飆股】{t}\n評分:{r['score']}\n價格:{r['p']:.2f}\n📊看圖:{r['url']}")
-        st.success("美股掃描完畢")
-
-with c4:
-    if st.button("🏛️ 4.權值守護", use_container_width=True):
-        for t in ["2330","2317","2454"]:
-            r = get_analysis(t)
-            if r: send_line(f"⚖️【權值】{t}\n評分:{r['score']}\n📊看圖:{r['url']}")
-        st.success("大盤報告已送出")
-
-with c5:
-    if st.button("💰 5.櫃買飆股", type="primary", use_container_width=True):
-        for t in ["8046","6142","3234","3163","4533","6125","5483","6290","8064"]:
-            r = get_analysis(t)
-            if r and r['score'] >= 80 and r['p'] > r['m5'] and 10 <= r['p'] <= 60:
-                send_line(f"🚀【櫃買飆】{t}\n評分:{r['score']}\n現價:{r['p']:.2f}\n📊看圖:{r['url']}")
-        st.success("櫃買掃描完畢")
+                send_line(f"💎【上櫃飆股訊號】{t}\n評分：{r['score']}\n現價：{r['p']:.2f}\n📊即時看圖：{r['url']}")
+        st.info("上櫃掃描完畢")
 
 st.markdown("---")
-st.caption("提示：按鈕 5 鎖定櫃買低價股(10-60元)。所有模式均含 5MA 濾網。")
+st.write("💡 **戰略指南**：美股每晚 9:30 開盤，上櫃股（OTC）波動最大，請務必嚴守 20MA 防線。")
