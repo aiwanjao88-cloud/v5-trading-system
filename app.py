@@ -96,7 +96,11 @@ if st.button("🚀 開始掃描並同步發送 LINE"):
         if data.empty: continue
         
         score, now = calculate_v5_score(data)
-        now_price = now['Close']
+       if now is not None and not now.empty:
+    now_price = now['Close']
+else:
+    st.error("暫時抓不到股票資料，請檢查網路或股票代碼是否正確。")
+    st.stop() # 讓程式在這邊停住，不要往下跑出錯 now_price = now['Close']
         entry_price = now_price
         stop_loss = now_price * 0.93
         
