@@ -51,73 +51,76 @@ def send_line_message(message):
 
 # --- 3. 介面設計 ---
 
-st.set_page_config(page_title="V7.1 國發級全域掃描器", layout="wide")
-st.title("📈 V7.1 國發級全域掃描器 (含即時線圖)")
+st.set_page_config(page_title="V7.2 小資飆股偵測器", layout="wide")
+st.title("📈 V7.2 國發級全域掃描器 (小資飆股優化版)")
 
 st.sidebar.header("🛠️ 系統狀態")
 st.sidebar.success("✅ LINE 授權已自動載入")
+st.sidebar.markdown("---")
+st.sidebar.write("💰 **小資策略設定**：")
+st.sidebar.write("- 股價區間：10 ~ 50 元")
+st.sidebar.write("- 門檻：評分 > 80 + 站上 5MA")
 
-ALL_TW_STOCKS = ["2330","2317","2454","2303","2382","3231","2603","2609","2615","2618","2610","2357","2353","2324","2301","2376","2377","2408","2409","3481","3037","3034","2379","6239","2881","2882","2886","2891","2884","2885","5880","2892","2880","2883","2887","2890","1101","1102","1301","1303","1326","6505","2005","2105","2201","2207","2912","5903","9904","9910"]
+# 權值股清單
+BLUE_CHIPS = ["2330","2317","2454","2303","2382","3231","2603","2881","2882"]
+# 潛力小資股清單 (包含熱門銅板股、低價電子、轉機股)
+PENNY_STOCKS = ["2344","2363","2409","3481","6116","2618","2610","2883","2888","1605","1608","1609","2002","2014","2323","2353","2362","2449","3035","3706","6116","1904","2641"]
 
 # --- 4. 掃描執行邏輯 ---
 
-def run_scanner(target_list, is_full_scan=False):
+def run_scanner(target_list, mode_name="一般"):
     results = []
     progress_bar = st.progress(0)
     status_text = st.empty()
     
     total = len(target_list)
     for i, ticker in enumerate(target_list):
-        status_text.text(f"正在掃描 ({i+1}/{total}): {ticker}")
+        status_text.text(f"[{mode_name}] 掃描中 ({i+1}/{total}): {ticker}")
         progress_bar.progress((i + 1) / total)
         
         data = yf.download(f"{ticker}.TW", period="8mo", progress=False)
         if data.empty: continue
 
         score, now = calculate_v5_score(data)
-        if now is not None and score >= 75:
+        if now is not None:
             now_price = float(now['Close'])
             ma5 = float(now['MA5'])
             ma20 = float(now['MA20'])
-            chart_url = f"https://tw.stock.yahoo.com/quote/{ticker}.TW"
             
-            res = {
-                "代碼": ticker,
-                "評分": score,
-                "現價": round(now_price, 2),
-                "5MA": round(ma5, 2),
-                "20MA": round(ma20, 2)
-            }
-            results.append(res)
-            
-            ma5_status = "🟢 已站上 5MA" if now_price > ma5 else "🟡 低於 5MA (等待轉強)"
-            msg = f"🚨【波段監控報告】\n標的：{ticker}\n評分：{score} 分\n現價：{now_price:.2f}\n狀態：{ma5_status}\n------------------\n🛡️ 停損參考：{now_price*0.93:.2f}\n⚓ 生命線(20MA)：{ma20:.2f}\n\n📊 即時線圖查看：\n{chart_url}"
-            send_line_message(msg)
+            # --- 小資飆股過濾邏輯 ---
+            if mode_name == "小資飆股":
+                # 過濾：價格要在 10-50 之間，且評分要更嚴格(80分)
+                if not (10 <= now_price <= 50) or score < 80:
+                    continue
+            else:
+                # 一般模式過濾
+                if score < 75:
+                    continue
+
+            # 站上 5MA 才發送
+            if now_price > ma5:
+                chart_url = f"https://tw.stock.yahoo.com/quote/{ticker}.TW"
+                results.append({"代碼": ticker, "評分": score, "現價": round(now_price, 2), "20MA": round(ma20, 2)})
+                
+                msg = f"🔥【小資飆股發現】\n標的：{ticker}\n評分：{score} 分 (強勢)\n價格：{now_price:.2f}\n------------------\n💡 此標的符合低單價、高動能特徵，適合 2 萬小資操作。\n⚓ 出場防線(20MA)：{ma20:.2f}\n📊 即時看圖：\n{chart_url}"
+                send_line_message(msg)
         
-        # 修正縮排問題：確保這行在 if is_full_scan 裡面
-        if is_full_scan:
-            time.sleep(0.1)
+        time.sleep(0.1)
             
     return results
 
 # --- 5. 主程式按鈕 ---
 
-col1, col2 = st.columns(2)
+col1, col2, col3 = st.columns(3)
 
 with col1:
-    user_input = st.text_input("自選監控清單", "2330,2317,2454,2603")
-    if st.button("🚀 執行自選掃描"):
-        list_to_scan = [t.strip() for t in user_input.split(",") if t.strip()]
-        final_res = run_scanner(list_to_scan)
-        if final_res:
-            st.table(pd.DataFrame(final_res))
-            st.success("✅ 掃描完成！")
+    user_input = st.text_input("自選清單", "2330,2317,2454")
+    if st.button("🚀 自選掃描"):
+        res = run_scanner([t.strip() for t in user_input.split(",") if t.strip()], "自選")
+        if res: st.table(pd.DataFrame(res))
 
 with col2:
-    st.write("掃描預設 50 檔權值股")
-    if st.button("🔍 啟動全域大數據掃描"):
-        with st.spinner("大數據分析中..."):
-            final_res = run_scanner(ALL_TW_STOCKS, is_full_scan=True)
-            if final_res:
-                st.table(pd.DataFrame(final_res))
-                st.success(f"✅ 發現 {len(final_res)} 檔強勢標的！")
+    st.write("掃描大型權值股")
+    if st.button("🔍 權值股掃描"):
+        res = run_scanner(BLUE_CHIPS, "權值股")
+        if res: st.table(pd.
