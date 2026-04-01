@@ -91,26 +91,27 @@ ticker_list = [t.strip() for t in tickers.split(",")]
 
 if st.button("🚀 開始掃描並同步發送 LINE"):
     results = []
-    for ticker in ticker_list:
-        data = yf.download(f"{ticker}.TW", period="6mo", progress=False)
-        if data.empty: continue
-        
-        score, now = calculate_v5_score(data)
-if now is not None and not now.empty:
-            now_price = now['Close']
-            entry_price = now_price
-            stop_loss = now_price * 0.93
-            
-            results.append({
-                "代碼": ticker,
-                "評分": score,
-                "現價": round(now_price, 2),
-                "進場參考": round(entry_price, 2),
-                "停損參考": round(stop_loss, 2)
-            })
-        else:
-            continue
+for ticker in ticker_list:
+            data = yf.download(f"{ticker}.TW", period="6mo", progress=False)
+            if data.empty:
+                continue
 
+            score, now = calculate_v5_score(data)
+            
+            if now is not None and not now.empty:
+                now_price = now['Close']
+                entry_price = now_price
+                stop_loss = now_price * 0.93
+                
+                results.append({
+                    "代碼": ticker,
+                    "評分": score,
+                    "現價": round(float(now_price), 2),
+                    "進場參考": round(float(entry_price), 2),
+                    "停損參考": round(float(stop_loss), 2)
+                })
+            else:
+                continue
         # --- 多重門檻發送邏輯 ---
         if score >= 75:
             # 決定警示等級
