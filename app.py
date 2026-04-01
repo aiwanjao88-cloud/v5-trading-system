@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import streamlit as st
 import yfinance as yf
 import pandas as pd
@@ -5,7 +6,7 @@ import pandas_ta as ta
 import requests
 import json
 
-# --- 1. 固定設定區 (已填入您的專屬資訊) ---
+# --- 1. 固定設定區 ---
 FIXED_LINE_TOKEN = "p0hZsq9njQwsK2QYkeTQjYYyJ87MpttosPY8E7e6HIbJns3Ii2AnYj4Z+QNaGCVrDphhuFlGKHJCnfMleQ1XlCJj2FRu2UJTYj9dAZUFIZfB4SLcVjXncnsGLrpflCwc1O3bU4OotJqW3zeslTFk8QdB04t89/1O/w1cDnyilFU="
 FIXED_USER_ID = "Ud25e9519467182c8b844df5260bccde5"
 
