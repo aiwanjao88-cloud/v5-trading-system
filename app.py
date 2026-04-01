@@ -139,4 +139,4 @@ if score >= 75:
             send_line_message(line_token, line_user_id, msg)
 
 st.table(pd.DataFrame(results))
-    st.success("掃描完成！高分標的已同步推播至 LINE。")
+st.success("掃描完成！高分標的已同步推播至 LINE。")
