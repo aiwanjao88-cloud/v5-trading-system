@@ -29,7 +29,10 @@ def get_v11_data(ticker):
         
         if df is None or df.empty or len(df) < 60: return None
         
-        if isinstance(df.columns, pd.MultiIndex): df.columns = df.columns.get_level_values(0)
+        # 處理 MultiIndex 欄位問題
+        if isinstance(df.columns, pd.MultiIndex): 
+            df.columns = df.columns.get_level_values(0)
+            
         df = df.astype(float)
         
         # 技術指標
@@ -51,44 +54,57 @@ def get_v11_data(ticker):
         if 50 < now['RSI'] < 75: score += 10
         
         light = "🟢【強勢綠燈】" if score >= 85 and p > m20 else ("🔴【止損紅燈】" if p < m20 or score < 60 else "🟡【等待黃燈】")
-        return {"df": df.tail(120), "score": score, "light": light, "p": p, "m20": m20}
-    except: return None
+        return {"df": df.tail(100), "score": score, "light": light, "p": p, "m20": m20}
+    except Exception as e:
+        return None
 
 def send_line(msg):
     headers = {"Content-Type":"application/json","Authorization":f"Bearer {TOKEN}"}
-    payload = {"to":USER_ID,"messages":[{"type":"text","text":f"🏛️ 國發 V11.1 戰報：\n{msg}"}]}
+    payload = {"to":USER_ID,"messages":[{"type":"text","text":f"🏛️ 國發 V11.2 戰報：\n{msg}"}]}
     try: requests.post("https://api.line.me/v2/bot/message/push", headers=headers, data=json.dumps(payload), timeout=10)
     except: pass
 
-# --- 3. TradingView 風格繪圖 ---
+# --- 3. TradingView 風格繪圖 (修復 KeyError) ---
 def draw_chart(ticker, df):
     fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.05, row_heights=[0.7, 0.3])
+    
+    # 主圖 K 線
     fig.add_trace(go.Candlestick(x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'], name='K線'), row=1, col=1)
     fig.add_trace(go.Scatter(x=df.index, y=df['MA5'], line=dict(color='#FF9800', width=1.5), name='5MA'), row=1, col=1)
     fig.add_trace(go.Scatter(x=df.index, y=df['MA20'], line=dict(color='#E91E63', width=2), name='20MA(生命)'), row=1, col=1)
     fig.add_trace(go.Scatter(x=df.index, y=df['MA60'], line=dict(color='#2196F3', width=2), name='60MA(趨勢)'), row=1, col=1)
-    colors = ['red' if df['Open'][i] > df['Close'][i] else 'green' for i in range(len(df))]
-    fig.add_trace(go.Bar(x=df.index, y=df['Volume'], name='成交量', marker_color=colors, opacity=0.5), row=2, col=1)
-    fig.update_layout(title=f"🏛️ {ticker} 戰略圖", template="plotly_dark", height=700, xaxis_rangeslider_visible=False, hovermode='x unified')
+    
+    # 修復後的成交量顏色邏輯 (使用 iloc 避免 KeyError)
+    colors = []
+    for i in range(len(df)):
+        if df['Close'].iloc[i] >= df['Open'].iloc[i]:
+            colors.append('#26a69a') # 漲: 翡翠綠
+        else:
+            colors.append('#ef5350') # 跌: 玫瑰紅
+            
+    fig.add_trace(go.Bar(x=df.index, y=df['Volume'], name='成交量', marker_color=colors, opacity=0.8), row=2, col=1)
+    
+    fig.update_layout(title=f"🏛️ {ticker} TradingView 專業戰略圖", template="plotly_dark", height=700, xaxis_rangeslider_visible=False, hovermode='x unified')
     st.plotly_chart(fig, use_container_width=True)
 
-# --- 4. 介面 ---
-st.set_page_config(page_title="V11.1 ETF 兼容版", layout="wide")
-st.title("🛡️ 國發 V11.1：全市場自動化終端 (含 ETF 支援)")
+# --- 4. 介面設計 ---
+st.set_page_config(page_title="V11.2 終極穩定版", layout="wide")
+st.title("🛡️ 國發 V11.2：TradingView 專業連動終端")
 
 c_in, c_btn = st.columns([3,1])
 with c_in: diag_t = st.text_input("輸入代碼 (2330, 00830, NVDA)", "00830").upper()
 with c_btn:
     st.write("<br>", unsafe_allow_html=True)
-    if st.button("🩺 執行專業檢診", use_container_width=True):
-        res = get_v11_data(diag_t)
-        if res:
-            st.subheader(f"{res['light']} {diag_t} | 評分: {res['score']}")
-            draw_chart(diag_t, res['df'])
-            send_line(f"{res['light']}\n標的：{diag_t}\n現價：{res['p']:.2f}\n生命線(20MA)：{res['m20']:.2f}")
-        else: st.error("查無資料，請確認代碼（如 00830）。")
+    if st.button("🚀 執行專業診斷", use_container_width=True):
+        with st.spinner("數據同步中..."):
+            res = get_v11_data(diag_t)
+            if res:
+                st.subheader(f"{res['light']} {diag_t} | 評分: {res['score']}")
+                draw_chart(diag_t, res['df'])
+                send_line(f"{res['light']}\n標的：{diag_t}\n現價：{res['p']:.2f}\n生命線(20MA)：{res['m20']:.2f}")
+            else: st.error("代碼格式錯誤或 Yahoo 數據源超時，請稍後再試。")
 
-# 快速掃描
+# 快速掃描區域
 st.markdown("---")
 b1, b2, b3, b4 = st.columns(4)
 def run_scan(stocks, mode):
@@ -98,14 +114,14 @@ def run_scan(stocks, mode):
         if r and "🟢" in r['light']:
             send_line(f"🚨【{mode}綠燈】{t}\n價格：{r['p']:.2f}\nMA20支撐：{r['m20']:.2f}")
         p.progress((i+1)/len(stocks))
-        time.sleep(0.1)
-    st.success("掃描完畢")
+        time.sleep(0.2)
+    st.success("掃描任務完成")
 
 with b1:
-    if st.button("📈 上市/ETF波段", use_container_width=True): run_scan(["00830","0050","2330","2454","2317"], "上市ETF")
+    if st.button("📈 上市/ETF監控", use_container_width=True): run_scan(["00830","0050","2330","2454"], "上市ETF")
 with b2:
-    if st.button("🇺🇸 美股強勢", use_container_width=True): run_scan(["NVDA","TSLA","PLTR","SOFI"], "美股")
+    if st.button("🇺🇸 美股強勢監控", use_container_width=True): run_scan(["NVDA","TSLA","PLTR","AAPL"], "美股")
 with b3:
-    if st.button("💰 小資飆股", use_container_width=True): run_scan(["2344","2409","2618","1605"], "小資")
+    if st.button("💰 小資飆股偵測", use_container_width=True): run_scan(["2344","2409","2618","1605"], "小資")
 with b4:
-    if st.button("💎 上櫃飆股", type="primary", use_container_width=True): run_scan(["8046","6142","3163","6125"], "上櫃")
+    if st.button("💎 上櫃飆股偵測", type="primary", use_container_width=True): run_scan(["8046","6142","3163","6125"], "上櫃")
