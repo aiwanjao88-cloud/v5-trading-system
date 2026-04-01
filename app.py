@@ -110,7 +110,7 @@ for ticker in ticker_list:
             "進場參考": round(float(entry_price), 2),
             "停損參考": round(float(stop_loss), 2)
          })
-            else:
+        else:
                 continue
         # --- 多重門檻發送邏輯 ---
 if score >= 75:
