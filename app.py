@@ -10,9 +10,12 @@ streamlit run app_v331_cathay_manual.py
 
 設定 LINE（擇一）：
 1) .streamlit/secrets.toml
-   LINE_TOKEN = "p0hZsq9njQwsK2QYkeTQjYYyJ87MpttosPY8E7e6HIbJns3Ii2AnYj4Z+QNaGCVrDphhuFlGKHJCnfMleQ1XlCJj2FRu2UJTYj9dAZUFIZfB4SLcVjXncnsGLrpflCwc1O3bU4OotJqW3zeslTFk8QdB04t89/1O/w1cDnyilFU="
-   LINE_USER_ID = "Ud25e9519467182c8b844df5260bccde5"
+   LINE_TOKEN = "你的新token"
+   LINE_USER_ID = "你的user_id"
 
+2) 環境變數
+   LINE_TOKEN=eUbzrVqurFmYr/hms1DUEo7FU+t47aQRkFmOUeULyN7PyKKteSSfv/VobijDw7qqDphhuFlGKHJCnfMleQ1XlC Jj2FRu2UJTYj9dAZUFIZeX6MbqM1pPoRImA27y6318kjuOQai0NXHxtV5toAUP4AdB04t89/1O/w1cDnyilFU=
+   LINE_USER_ID=Ud25e9519467182c8b844df5260bccde5...
 """
 
 import os
