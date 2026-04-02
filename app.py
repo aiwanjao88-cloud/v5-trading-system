@@ -13,14 +13,14 @@ from plotly.subplots import make_subplots
 TOKEN = "p0hZsq9njQwsK2QYkeTQjYYyJ87MpttosPY8E7e6HIbJns3Ii2AnYj4Z+QNaGCVrDphhuFlGKHJCnfMleQ1XlCJj2FRu2UJTYj9dAZUFIZfB4SLcVjXncnsGLrpflCwc1O3bU4OotJqW3zeslTFk8QdB04t89/1O/w1cDnyilFU="
 USER_ID = "Ud25e9519467182c8b844df5260bccde5"
 
-# --- 2. 聖域分析引擎 (V28.0 高度客製化) ---
-def get_v28_analysis(ticker):
+# --- 2. 鋼鐵核心引擎 (修正所有報錯邏輯) ---
+def get_v29_core_logic(ticker):
     try:
         ticker = ticker.strip().upper()
         is_us = any(c.isalpha() for c in ticker)
         df = pd.DataFrame()
         
-        # 數據路由
+        # 多重數據路由
         if is_us:
             df = yf.download(ticker, period="1y", interval="1d", progress=False, auto_adjust=True)
             chart_url = f"https://www.tradingview.com/symbols/{ticker}/"
@@ -34,11 +34,12 @@ def get_v28_analysis(ticker):
         
         if df.empty or len(df) < 60: return None
 
-        # 數據標準化
+        # 數據結構清洗 (解決 MultiIndex 與時區)
         if isinstance(df.columns, pd.MultiIndex): df.columns = df.columns.get_level_values(0)
         df.index = df.index.tz_localize(None)
-        
-        # 三刀流指標
+        df = df.astype(float)
+
+        # 刀神均線三刀流
         df['MA5'] = ta.sma(df['Close'], length=5)
         df['MA20'] = ta.sma(df['Close'], length=20)
         df['MA60'] = ta.sma(df['Close'], length=60)
@@ -47,93 +48,85 @@ def get_v28_analysis(ticker):
         df = df.dropna()
         
         now = df.iloc[-1]
-        p, m5, m20, m60 = float(now['Close']), float(now['MA5']), float(now['MA20']), float(now['MA60'])
+        p, m20 = float(now['Close']), float(now['MA20'])
+        vol_avg = df['Volume'].rolling(20).mean().iloc[-1]
+        vol_r = float(df['Volume'].iloc[-1] / vol_avg) if vol_avg > 0 else 1
         
-        # 10% 獲利回收與 5% 預警點
-        target_10 = p * 1.10
-        warn_5 = p * 1.05
+        # 10% 獲利回收價
+        target_p = p * 1.10
         
+        # 戰略評分
         score = 0
-        if p > m5: score += 20
+        if p > float(now['MA5']): score += 20
         if p > m20: score += 40
-        if m20 > m60: score += 20
+        if m20 > float(now['MA60']): score += 20
         if float(now['MACD_H']) > 0: score += 20
 
         status = "🟢強勢" if score >= 80 else ("🔴止損" if p < m20 else "🟡觀望")
         
         return {
-            "ticker": ticker, "p": p, "m5": m5, "m20": m20, "m60": m60, 
-            "target": target_10, "warn": warn_5, "score": score, 
-            "status": status, "url": chart_url, "df": df.tail(60)
+            "ticker": ticker, "p": p, "target": target_p, "m20": m20, 
+            "vol_r": vol_r, "status": status, "url": chart_url, "score": score
         }
     except: return None
 
-def push_line(msg):
+def push_v29_line(text):
     headers = {"Content-Type":"application/json","Authorization":f"Bearer {TOKEN}"}
-    payload = {"to":USER_ID, "messages":[{"type":"text", "text":msg}]}
-    requests.post("https://api.line.me/v2/bot/message/push", headers=headers, data=json.dumps(payload))
+    payload = {"to":USER_ID, "messages":[{"type":"text", "text":text}]}
+    try: requests.post("https://api.line.me/v2/bot/message/push", headers=headers, data=json.dumps(payload), timeout=10)
+    except: pass
 
-# --- 3. 指揮中心介面 ---
-st.set_page_config(page_title="V28 聖域監控終端", layout="wide")
-st.title("🛡️ 國發聖域戰略監控終端 V28.0")
-st.caption("上帝權威校準：20 個自訂欄位即時監控 10% 獲利回收系統")
+# --- 3. 聖域介面 (修正 SyntaxError 與 縮排) ---
+st.set_page_config(page_title="V29 聖域盤石版", layout="wide")
+st.title("🛡️ 國發聖域終端 V29.0 (上帝盤石穩定版)")
+st.caption("2026 印太戰略操盤手專用 | 自訂 20 欄位 10% 獲利監控與圖表連結")
 
-# [A] 自訂 20 欄位戰略監控表
-st.header("📋 24H 自訂戰略監控清單 (20 欄位)")
-custom_input = st.text_area("請輸入 20 個標的代碼 (用逗號分隔，例: 2330, NVDA, 00830, TSM, VOO)", 
-                           "00830, 00919, 00929, 2330, NVDA, QQQM, SCHD, SMH, TSLA, TSM, VOO, 2317, 2454, PLTR, AMD").upper()
+# [A] 20 欄位自訂監控區
+st.header("📋 24H 戰略監控清單 (20 欄位)")
+custom_input = st.text_area("輸入代碼 (逗號分隔)", "00830, 00919, 00929, 2330, NVDA, TSM, VOO, TSLA, SMH, QQQM").upper()
 
-if st.button("🚀 啟動全市場即時監控 (含 10% 獲利預估)", use_container_width=True):
+if st.button("🚀 啟動即時監控 (含 10% 獲利預估)", use_container_width=True):
     tickers = [t.strip() for t in custom_input.split(",") if t.strip()][:20]
-    results = []
+    data_log = []
+    for t in tickers:
+        res = get_v29_core_logic(t)
+        if res:
+            data_log.append(res)
+            # LINE 同步
+            report = (f"🏛️ V29 監控：{res['ticker']}\n狀態：{res['status']}\n現價：{res['p']:.2f}\n"
+                      f"🎯 10%回收：{res['target']:.2f}\n🛡️ 生命線：{res['m20']:.2f}\n📊 線圖：{res['url']}")
+            push_v29_line(report)
     
-    with st.spinner("正在對標印太數據鏈..."):
-        for t in tickers:
-            res = get_v28_analysis(t)
-            if res: results.append(res)
-    
-    if results:
-        # 建立 20 欄位專業表格
-        df_display = pd.DataFrame(results)
-        df_display = df_display[['ticker', 'status', 'p', 'target', 'm20', 'score']]
-        df_display.columns = ['代碼', '戰略狀態', '目前市價', '10%回收價', '生命線(20MA)', '戰力評分']
-        st.table(df_display)
-        
-        # 執行 LINE 通知
-        for r in results:
-            if "🟢" in r['status'] or "🔴" in r['status']:
-                msg = (f"🏛️ V28 監控報報：{r['ticker']}\n狀態：{r['status']}\n"
-                       f"現價：{r['p']:.2f}\n🎯 10%回收：{r['target']:.2f}\n"
-                       f"🛡️ 生命線：{r['m20']:.2f}\n📊 線圖：{r['url']}")
-                push_line(msg)
-        st.success(f"✅ 已完成 {len(results)} 檔標的之三刀流校準與 LINE 回報。")
+    if data_log:
+        df_final = pd.DataFrame(data_log)[['ticker', 'status', 'p', 'target', 'm20', 'vol_r']]
+        df_final.columns = ['代碼', '狀態', '市價', '10%回收點', '生命線', '量比']
+        st.table(df_final)
 
-# [B] 原有條件不變 - 戰略按鈕區
+# [B] 原有條件掃描 (修復 Sea-horse 語法)
 st.markdown("---")
-st.header("⚡ 原有戰略掃描 (上帝全連結版)")
+st.header("⚡ 全市場戰略掃描 (原有條件不變)")
 c1, c2, c3, c4 = st.columns(4)
-SCAN_SEEDS = {
-    "上市波段": ["2330","2317","2454","2382","2603"],
-    "美股強勢": ["NVDA","TSLA","PLTR","COIN","AMD"],
-    "小資飆股": ["2344","2409","2618","3481","6116"],
-    "上櫃飆股": ["8046","6142","3234","3163","8069"]
-}
 
-def run_scan(mode, stocks):
-    found = []
-    for t in stocks:
-        r = get_v28_analysis(t)
+def run_v29_scan(mode, list_stocks):
+    st.info(f"掃描 {mode} 中...")
+    found_count = 0
+    for t in list_stocks:
+        r = get_v29_core_logic(t)
         if r and "🟢" in r['status']:
-            found.append(t)
-            msg = (f"🏛️ V28 {mode}綠燈：{r['ticker']}\n現價：{r['p']:.2f}\n目標：{r['target']:.2f}\n📊 圖表：{r['url']}")
-            push_line(msg)
-    st.success(f"{mode} 掃描完成。")
+            msg = f"🦅 V29 {mode}綠燈：{r['ticker']}\n現價：{r['p']:.2f}\n目標：{r['target']:.2f}\n📊 線圖：{r['url']}"
+            push_v29_line(msg)
+            found_count += 1
+    st.success(f"任務完成。發現 {found_count} 檔強勢標的。")
 
 with c1:
-    if st.button("📈 監控上市波段"): run_scan("上市波段", SCAN_SEEDS["上市波段"])
+    if st.button("📈 監控上市波段"):
+        run_v29_scan("上市", ["2330","2317","2454","2382","2603"])
 with c2:
-    if st.button("🇺🇸 監控美股強勢"): run_scan("美股強勢", SCAN_SEEDS["美股強勢"])
+    if st.button("🇺🇸 監控美股強勢"):
+        run_v29_scan("美股", ["NVDA","TSLA","PLTR","COIN","AMD"])
 with c3:
-    if st.button("💰 偵測小資飆股"): run_scan("小資飆股", SCAN_SEEDS["小資飆股"])
-with s4 := c4:
-    if st.button("🚀 偵測上櫃飆股", type="primary"): run_scan("上櫃飆股", SCAN_SEEDS["上櫃飆股"])
+    if st.button("💰 偵測小資飆股"):
+        run_v29_scan("小資", ["2344","2409","2618","3481","6116"])
+with c4:
+    if st.button("🚀 偵測上櫃飆股", type="primary"):
+        run_v29_scan("上櫃", ["8046","6142","3234","3163","8069"])
