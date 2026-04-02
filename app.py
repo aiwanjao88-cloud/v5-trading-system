@@ -13,9 +13,6 @@ streamlit run app_v331_cathay_manual.py
    LINE_TOKEN = "p0hZsq9njQwsK2QYkeTQjYYyJ87MpttosPY8E7e6HIbJns3Ii2AnYj4Z+QNaGCVrDphhuFlGKHJCnfMleQ1XlCJj2FRu2UJTYj9dAZUFIZfB4SLcVjXncnsGLrpflCwc1O3bU4OotJqW3zeslTFk8QdB04t89/1O/w1cDnyilFU="
    LINE_USER_ID = "Ud25e9519467182c8b844df5260bccde5"
 
-2) 環境變數
-   LINE_TOKEN=...
-   LINE_USER_ID=...
 """
 
 import os
